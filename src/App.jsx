@@ -231,11 +231,13 @@ function analyzeWhatsAppText(raw) {
   const failed = [];
   if (!raw || !raw.trim()) return { results, failed };
 
-  const lines = raw.split(/\r?\n|;/);
+  const lines = raw.split(/\r?\n|;|\|/);
   let pendingNumbers = [];
   let pendingRawLines = [];
+  let lastBatchNums = [];
 
   const pushEntries = (nums, straightAmt, palatAmt) => {
+    lastBatchNums = [...nums];
     for (const n of nums) {
       results.push({ number: n, amount: straightAmt });
       if (palatAmt > 0) {
@@ -293,10 +295,15 @@ function analyzeWhatsAppText(raw) {
     }
 
     // Strip trailing total clauses like "टोटल 100", "Total = 200", or "To. 570"
+    // Also strip trailing game tags like "gb", "gali", "ds", "fd", "sg", "db" (even attached like "25gb")
     line = line
       .replace(
         /(?:टोटल|कुल|grand\s*total|total|tot|ttl|sum|\bto\.)\s*[-:=*>₹.\s]*\d+(?:\.\d+)?(?:\s*(?:₹|rs\.?|inr|\/-|रुपये|रुपए))?/gi,
         ' '
+      )
+      .replace(
+        /(?:^|[\s\d])(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shri\s*ganesh|db|delhi\s*bazar|gzb|ghaziabad)\s*$/i,
+        (m) => (/^\d/.test(m) ? m[0] : ' ')
       )
       .trim();
     if (!line) continue;
@@ -332,7 +339,7 @@ function analyzeWhatsAppText(raw) {
     let hasSamePalat = false;
 
     const sepPalatMatch = line.match(
-      /(?:\b(?:with\s+)?(?:palat|palti|palt|plt)\b)\s*[.=*:\s]*(\d+(?:\.\d+)?)/i
+      /(?:\b(?:with\s+)?(?:palat|palti|palt|plt)\b)\s*(?:into|intu|ento|in|rs|@|=|×|x)?\s*[.=*:\s]*(\d+(?:\.\d+)?)/i
     );
     const hasPalatKeyword =
       /\b(?:with\s+palat|palt\s*k\s*sath|palat\s*ke\s*sath|palat|palti|palt|plt|wp)\b/i.test(line);
@@ -343,6 +350,15 @@ function analyzeWhatsAppText(raw) {
         if (/(?:into|intu|ento|in|rs|r|@|=|\(|\*|\/)\s*\d+/i.test(beforePalat)) {
           separatePalatAmt = parseFloat(sepPalatMatch[1]);
           line = beforePalat.trim();
+        } else if (!/\d/.test(beforePalat) && pendingNumbers.length === 0 && lastBatchNums.length > 0) {
+          const pAmt = parseFloat(sepPalatMatch[1]);
+          if (pAmt > 0) {
+            for (const n of lastBatchNums) {
+              const rev = getPalatNumber(n);
+              if (rev !== null) results.push({ number: rev, amount: pAmt });
+            }
+          }
+          continue;
         } else {
           hasSamePalat = true;
           line = line.replace(/\b(?:with\s+)?(?:palat|palti|palt|plt)\b/gi, 'into').trim();
@@ -356,9 +372,24 @@ function analyzeWhatsAppText(raw) {
     }
 
     // 2. Clean common noise words & currency symbols
+    const dividerAmtMatch = line.match(/^\d?\s*_{3,}\s*\d?\s+(\d+(?:\.\d+)?)$/);
+    if (dividerAmtMatch && pendingNumbers.length > 0) {
+      const amt = parseFloat(dividerAmtMatch[1]);
+      const combined = [...pendingNumbers];
+      pendingNumbers = [];
+      pendingRawLines = [];
+      if (amt > 0) {
+        pushEntries(combined, amt, separatePalatAmt ?? (hasSamePalat ? amt : 0));
+      }
+      continue;
+    }
+
     let cleaned = line
       .replace(/[₹]/g, ' ')
-      .replace(/(\d)\s*(?:into|intu|ento|intoo|rs\.?|rupe)\s*$/i, '$1')
+      .replace(
+        /(\d+(?:\.\d+)?)\s*(?:into|intu|ento|intoo|rs\.?|inr|rupe)\s*[/\-.,]*\s*$/i,
+        ' into $1'
+      )
       .replace(/\b(?:rs\.?|inr|rupe|rupy|ru|ki|ka|me|mai|mein|se|tak|ok|okk|ookk|clear)\b/gi, ' ')
       .replace(/\/-/g, ' ')
       .replace(/\]/g, ')')
@@ -367,6 +398,21 @@ function analyzeWhatsAppText(raw) {
       .trim();
 
     if (!cleaned) continue;
+
+    // 2b. Multiple inline "num=amt" pairs on a single line (e.g. "02=10 12=10 ... 92=10")
+    const inlinePairs = [...cleaned.matchAll(/\b(\d{1,3})\s*=\s*(\d+(?:\.\d+)?)\b/g)];
+    if (inlinePairs.length >= 2 && /^[\d\s=.,]+$/.test(cleaned)) {
+      pendingNumbers = [];
+      pendingRawLines = [];
+      for (const pair of inlinePairs) {
+        const num = normalizeJodiNumber(pair[1]);
+        const amt = parseFloat(pair[2]);
+        if (num !== null && amt > 0) {
+          pushEntries([num], amt, separatePalatAmt ?? (hasSamePalat ? amt : 0));
+        }
+      }
+      continue;
+    }
 
     // 3. Inline "(amount)" groups
     const parenGroups = [...cleaned.matchAll(/([\d\s.,/_+\-\\*]+?)\(\s*@?\s*(\d+(?:\.\d+)?)\s*(?:into|intu|ento|in|rs)?\s*\)/gi)];
@@ -425,7 +471,7 @@ function analyzeWhatsAppText(raw) {
 
     // 5. Separator match
     const sepMatch = !deferToBuffer && cleaned.match(
-      /^([\d\s.,/_+\-\\*=*#]+?)\s*(?:=|==|\*\*|\*|\/\/|\/|#|:|---|--|-|\.+|@|×|x)\s*(\d+(?:\.\d+)?)$/i
+      /^([\d\s.,/_+\-\\*=*#]+?)\s*(?:=+|\*\*|\*|\/\/|\/|#|:|---|--|-|,{2,}|\.+|@|×|x)\s*(\d+(?:\.\d+)?)$/i
     );
     if (sepMatch) {
       const nums = extractJodiList(sepMatch[1]);
