@@ -256,9 +256,22 @@ public class MainActivity extends BridgeActivity {
     private void handleIncomingIntent(Intent intent) {
         if (intent == null) return;
         String text = intent.getStringExtra("clip_text");
+        if (text == null || text.trim().isEmpty()) {
+            String action = intent.getAction();
+            if (Intent.ACTION_SEND.equals(action)) {
+                CharSequence shared = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
+                if (shared != null) text = shared.toString();
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Intent.ACTION_PROCESS_TEXT.equals(action)) {
+                CharSequence proc = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT);
+                if (proc != null) text = proc.toString();
+            }
+        }
         if (text != null && !text.trim().isEmpty()) {
             storePendingClip(text);
             deliverPendingClipToWeb();
+        } else if (intent.getBooleanExtra("from_copy_trigger", false) &&
+                getBridge() != null && getBridge().getWebView() != null) {
+            getBridge().getWebView().postDelayed(this::checkSystemClipboardFallback, 250);
         }
     }
 

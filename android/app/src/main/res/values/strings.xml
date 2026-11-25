@@ -4,4 +4,5 @@
     <string name="title_activity_main">Sunny Number Tracker</string>
     <string name="package_name">com.sunny.numbertracker</string>
     <string name="custom_url_scheme">com.sunny.numbertracker</string>
+    <string name="accessibility_service_description">WhatsApp में Copy करते ही Sunny Number Tracker अपने-आप खोलता है</string>
 </resources>
