@@ -7,6 +7,7 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import com.getcapacitor.BridgeActivity;
 import org.json.JSONObject;
@@ -15,6 +16,13 @@ public class MainActivity extends BridgeActivity {
     private static final String ACTION_CLIP_COPIED = "com.sunny.numbertracker.CLIP_COPIED";
     private static final String PREFS_NAME = "sunny_bridge_prefs";
     private static final String KEY_PENDING_CLIP = "pending_clip";
+
+    public class SunnyNativeBridge {
+        @JavascriptInterface
+        public void returnToPreviousApp() {
+            runOnUiThread(() -> moveTaskToBack(true));
+        }
+    }
 
     private final BroadcastReceiver clipReceiver = new BroadcastReceiver() {
         @Override
@@ -32,6 +40,9 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (getBridge() != null && getBridge().getWebView() != null) {
+            getBridge().getWebView().addJavascriptInterface(new SunnyNativeBridge(), "SunnyNativeBridge");
+        }
         IntentFilter filter = new IntentFilter(ACTION_CLIP_COPIED);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(clipReceiver, filter, Context.RECEIVER_EXPORTED);

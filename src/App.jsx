@@ -385,8 +385,26 @@ function analyzeWhatsAppText(raw) {
       }
     }
 
+    // Lookahead: if line is a multi-number list (e.g. "60*48*75*21*13") followed later by an "into X" line, buffer it instead of treating the last number as amount
+    let deferToBuffer = false;
+    if (!/[=**#@×]/.test(cleaned) && /^[\d\s.,/_+\-\\*]+$/.test(cleaned)) {
+      const candidateNums = extractJodiList(cleaned);
+      if (candidateNums.length >= 2) {
+        for (let k = i + 1; k < lines.length; k++) {
+          const nxt = lines[k].trim();
+          if (!nxt) continue;
+          if (/^(?:total|tot|ttl|tt|t|gt|टोटल|कुल)\b/i.test(nxt)) break;
+          if (/(?:into|intu|ento|intoo|in|rs|r)\s*[.=*:\s]*\d+|\(\s*@?\s*\d+\s*(?:into|in|rs)?\s*\)\s*$/i.test(nxt)) {
+            deferToBuffer = true;
+            break;
+          }
+          if (!/^[\d\s.,/_+\-\\*]+$/.test(nxt)) break;
+        }
+      }
+    }
+
     // 5. Separator match
-    const sepMatch = cleaned.match(
+    const sepMatch = !deferToBuffer && cleaned.match(
       /^([\d\s.,/_+\-\\*=*#]+?)\s*(?:=|==|\*\*|\*|\/\/|\/|#|:|---|--|-|\.+|@|×|x)\s*(\d+(?:\.\d+)?)$/i
     );
     if (sepMatch) {
@@ -768,7 +786,7 @@ export default function App() {
     }
   };
 
-  const openConfirmForText = (rawText, sourceLabel = '') => {
+  const openConfirmForText = (rawText, sourceLabel = '', fromBridge = false) => {
     if (!rawText || !rawText.trim()) {
       showToast('पहले WhatsApp टेक्स्ट पेस्ट करें या लिखें');
       return;
@@ -783,7 +801,7 @@ export default function App() {
       }
       return;
     }
-    setPendingConfirm({ results, failed, sourceLabel, rawText });
+    setPendingConfirm({ results, failed, sourceLabel, rawText, fromBridge });
   };
 
   // Listen for clipboard text forwarded by HeliBoard Android bridge
@@ -792,14 +810,14 @@ export default function App() {
       const text = ev?.detail;
       if (typeof text === 'string' && text.trim()) {
         setInputText(text);
-        openConfirmForText(text, 'कीबोर्ड ✓ ');
+        openConfirmForText(text, 'कीबोर्ड ✓ ', true);
       }
     };
     window.addEventListener('sunny_clip_received', handleBridgeClip);
     window.receiveSunnyClip = (text) => {
       if (typeof text === 'string' && text.trim()) {
         setInputText(text);
-        openConfirmForText(text, 'कीबोर्ड ✓ ');
+        openConfirmForText(text, 'कीबोर्ड ✓ ', true);
       }
     };
     return () => {
@@ -810,7 +828,7 @@ export default function App() {
 
   const handleConfirmPendingAdd = () => {
     if (!pendingConfirm) return;
-    const { results, failed, sourceLabel } = pendingConfirm;
+    const { results, failed, sourceLabel, fromBridge } = pendingConfirm;
     commitParsedEntries(results, sourceLabel);
     if (failed.length > 0) {
       const savedCount = recordFailedPatterns(failed, '');
@@ -819,6 +837,17 @@ export default function App() {
       }
     }
     setPendingConfirm(null);
+    if (fromBridge && window.SunnyNativeBridge?.returnToPreviousApp) {
+      setTimeout(() => window.SunnyNativeBridge.returnToPreviousApp(), 250);
+    }
+  };
+
+  const handleCancelPendingAdd = () => {
+    const wasBridge = pendingConfirm?.fromBridge;
+    setPendingConfirm(null);
+    if (wasBridge && window.SunnyNativeBridge?.returnToPreviousApp) {
+      window.SunnyNativeBridge.returnToPreviousApp();
+    }
   };
 
   const processInputSubmission = (sourceLabel = '') => {
@@ -2151,6 +2180,40 @@ export default function App() {
 
                     <button
                       onClick={() => {
+                        setToolsView(null);
+                        const demoMsg =
+                          '[25/11, 8:45 pm] कस्टमर: 12.27.34.. into 20\n43=50\nTotal 110';
+                        if (typeof window.receiveSunnyClip === 'function') {
+                          window.receiveSunnyClip(demoMsg);
+                        } else {
+                          openConfirmForText(demoMsg, 'कीबोर्ड ✓ ');
+                        }
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        background: t.inputBg,
+                        border: '1.5px solid #10b981',
+                        borderRadius: '12px',
+                        padding: '12px 14px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <Sparkles size={18} color="#10b981" />
+                      <div>
+                        <div style={{ fontSize: '13px', fontWeight: 700, color: '#6ee7b7' }}>
+                          🎹 कीबोर्ड ब्रिज डेमो देखें (Live Demo)
+                        </div>
+                        <div style={{ fontSize: '11px', color: t.textSecondary }}>
+                          देखें WhatsApp पर Copy करते ही कन्फ़र्मेशन लिस्ट कैसे खुलेगी
+                        </div>
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={() => {
                         handleLoad30kGame();
                         setToolsView('moti_jodi');
                       }}
@@ -3263,7 +3326,7 @@ export default function App() {
               <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
                 <button
                   type="button"
-                  onClick={() => setPendingConfirm(null)}
+                  onClick={handleCancelPendingAdd}
                   style={{
                     flex: 1,
                     background: t.inputBg,
