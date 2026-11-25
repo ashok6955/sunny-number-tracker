@@ -17,10 +17,14 @@ public class SunnyBootReceiver extends BroadcastReceiver {
         SharedPreferences prefs = context.getSharedPreferences("sunny_bridge_prefs", Context.MODE_PRIVATE);
         boolean syncEnabled = prefs.getBoolean("bg_sync_enabled", false);
         String topic = prefs.getString("bg_sync_topic", "");
+        String deviceId = prefs.getString("bg_sync_device_id", "");
         if (syncEnabled && topic != null && !topic.trim().isEmpty()) {
             Intent svc = new Intent(context, SunnySyncService.class);
             svc.setAction(SunnySyncService.ACTION_START);
             svc.putExtra("topic", topic.trim());
+            if (deviceId != null && !deviceId.trim().isEmpty()) {
+                svc.putExtra("deviceId", deviceId.trim());
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(svc);
             } else {

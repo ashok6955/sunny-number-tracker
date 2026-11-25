@@ -690,11 +690,15 @@ export default function App() {
   const mergeRemoteSyncPayload = (payload) => {
     if (!payload) return false;
     if (payload.senderId) {
-      peersRef.current.set(payload.senderId, Date.now());
+      const msgTs = Number(payload.sentAt) || Date.now();
+      const prevTs = peersRef.current.get(payload.senderId) || 0;
+      if (msgTs > prevTs) {
+        peersRef.current.set(payload.senderId, msgTs);
+      }
       const now = Date.now();
       let active = 1; // include self
       for (const [pid, ts] of peersRef.current.entries()) {
-        if (pid !== deviceId && now - ts < 50000) active++;
+        if (pid !== deviceId && now - ts < 90000) active++;
       }
       setConnectedCount(active);
     }
@@ -826,7 +830,7 @@ export default function App() {
     }
     prevSyncEnabledRef.current = true;
     setSyncStatus('connecting');
-    window.SunnyNativeBridge?.startBackgroundSync?.(cleanSyncTopic);
+    window.SunnyNativeBridge?.startBackgroundSync?.(cleanSyncTopic, deviceId);
 
     window.receiveSunnySyncPayload = (rawPayload) => {
       try {
@@ -867,10 +871,19 @@ export default function App() {
       const now = Date.now();
       let active = 1;
       for (const [pid, ts] of peersRef.current.entries()) {
-        if (pid !== deviceId && now - ts < 50000) active++;
+        if (pid !== deviceId && now - ts < 90000) active++;
       }
       setConnectedCount(active);
     }, 20000);
+
+    const handleResumeSync = () => {
+      if (document.visibilityState === 'visible') {
+        sendHeartbeat();
+        pullSyncHistory(false);
+      }
+    };
+    document.addEventListener('visibilitychange', handleResumeSync);
+    window.addEventListener('focus', handleResumeSync);
 
     const es = new EventSource(`https://ntfy.sh/${cleanSyncTopic}/sse`);
     es.onopen = () => setSyncStatus('live');
@@ -890,6 +903,8 @@ export default function App() {
     };
     return () => {
       clearInterval(hbInterval);
+      document.removeEventListener('visibilitychange', handleResumeSync);
+      window.removeEventListener('focus', handleResumeSync);
       es.close();
       delete window.receiveSunnySyncPayload;
     };

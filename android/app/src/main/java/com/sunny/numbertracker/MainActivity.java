@@ -135,15 +135,24 @@ public class MainActivity extends BridgeActivity {
 
         @JavascriptInterface
         public void startBackgroundSync(String topic) {
+            startBackgroundSync(topic, "");
+        }
+
+        @JavascriptInterface
+        public void startBackgroundSync(String topic, String deviceId) {
             if (topic == null || topic.trim().isEmpty()) return;
             runOnUiThread(() -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                     ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                     ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, 201);
                 }
+                requestBatteryExemptionOnce();
                 Intent svc = new Intent(MainActivity.this, SunnySyncService.class);
                 svc.setAction(SunnySyncService.ACTION_START);
                 svc.putExtra("topic", topic.trim());
+                if (deviceId != null && !deviceId.trim().isEmpty()) {
+                    svc.putExtra("deviceId", deviceId.trim());
+                }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     startForegroundService(svc);
                 } else {
@@ -171,6 +180,22 @@ public class MainActivity extends BridgeActivity {
             }
             return "";
         }
+    }
+
+    private void requestBatteryExemptionOnce() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+        try {
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                if (!prefs.getBoolean("battery_opt_prompted", false)) {
+                    prefs.edit().putBoolean("battery_opt_prompted", true).apply();
+                    Intent i = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                    i.setData(android.net.Uri.parse("package:" + getPackageName()));
+                    startActivity(i);
+                }
+            }
+        } catch (Exception ignored) {}
     }
 
     @Override

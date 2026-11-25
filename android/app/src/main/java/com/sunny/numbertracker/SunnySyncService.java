@@ -1,5 +1,6 @@
 package com.sunny.numbertracker;
 
+import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -11,6 +12,8 @@ import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
+import android.os.SystemClock;
 
 import androidx.core.app.NotificationCompat;
 
@@ -18,8 +21,11 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 public class SunnySyncService extends Service {
     public static final String ACTION_START = "com.sunny.numbertracker.SYNC_START";
@@ -33,11 +39,15 @@ public class SunnySyncService extends Service {
     private static final String PREFS_NAME = "sunny_bridge_prefs";
     private static final String KEY_SYNC_ENABLED = "bg_sync_enabled";
     private static final String KEY_SYNC_TOPIC = "bg_sync_topic";
+    private static final String KEY_SYNC_DEVICE_ID = "bg_sync_device_id";
     private static final String KEY_PENDING_SYNC_JSON = "bg_pending_sync_json";
+    private static final long HEARTBEAT_INTERVAL_MS = 25000L;
 
     private volatile boolean running = false;
     private Thread workerThread;
+    private Thread heartbeatThread;
     private HttpURLConnection activeConn;
+    private PowerManager.WakeLock wakeLock;
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -73,8 +83,20 @@ public class SunnySyncService extends Service {
             return START_NOT_STICKY;
         }
 
-        prefs.edit().putBoolean(KEY_SYNC_ENABLED, true).putString(KEY_SYNC_TOPIC, topic.trim()).apply();
+        String deviceId = intent != null && intent.hasExtra("deviceId")
+                ? intent.getStringExtra("deviceId")
+                : prefs.getString(KEY_SYNC_DEVICE_ID, "");
+        if (deviceId == null || deviceId.trim().isEmpty()) {
+            deviceId = "svc-" + UUID.randomUUID().toString().substring(0, 8);
+        }
+
+        prefs.edit()
+                .putBoolean(KEY_SYNC_ENABLED, true)
+                .putString(KEY_SYNC_TOPIC, topic.trim())
+                .putString(KEY_SYNC_DEVICE_ID, deviceId.trim())
+                .apply();
         cancelOffAlert();
+
         Notification fgNotif = buildLiveNotification("🟢 लाइव सिंक चालू है (24 घंटे सक्रिय)");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIF_LIVE_ID, fgNotif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
@@ -82,13 +104,38 @@ public class SunnySyncService extends Service {
             startForeground(NOTIF_LIVE_ID, fgNotif);
         }
 
-        startWorker(topic.trim());
+        startWorker(topic.trim(), deviceId.trim());
         return START_STICKY;
     }
 
-    private void startWorker(final String topic) {
+    private void acquireWakeLock() {
+        try {
+            if (wakeLock == null) {
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                if (pm != null) {
+                    wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SunnyTracker::SyncWakeLock");
+                    wakeLock.setReferenceCounted(false);
+                }
+            }
+            if (wakeLock != null && !wakeLock.isHeld()) {
+                wakeLock.acquire();
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void releaseWakeLock() {
+        try {
+            if (wakeLock != null && wakeLock.isHeld()) {
+                wakeLock.release();
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void startWorker(final String topic, final String deviceId) {
         stopWorker();
         running = true;
+        acquireWakeLock();
+
         workerThread = new Thread(() -> {
             while (running) {
                 try {
@@ -126,15 +173,62 @@ public class SunnySyncService extends Service {
             }
         });
         workerThread.start();
+
+        // 24/7 native heartbeat so backgrounded / screen-off phones stay Connected: 4
+        heartbeatThread = new Thread(() -> {
+            while (running) {
+                sendHeartbeatPing(topic, deviceId);
+                try {
+                    Thread.sleep(HEARTBEAT_INTERVAL_MS);
+                } catch (InterruptedException ignored) {
+                    break;
+                }
+            }
+        });
+        heartbeatThread.start();
+    }
+
+    private void sendHeartbeatPing(String topic, String deviceId) {
+        HttpURLConnection conn = null;
+        try {
+            JSONObject ping = new JSONObject();
+            ping.put("type", "SUNNY_PING_V1");
+            ping.put("senderId", deviceId);
+            ping.put("sentAt", System.currentTimeMillis());
+            byte[] bytes = ping.toString().getBytes(StandardCharsets.UTF_8);
+
+            URL url = new URL("https://ntfy.sh/" + topic);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(10000);
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json");
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(bytes);
+            }
+            conn.getResponseCode();
+        } catch (Exception ignored) {
+        } finally {
+            if (conn != null) {
+                try { conn.disconnect(); } catch (Exception ignored) {}
+            }
+        }
     }
 
     private void handleIncomingSseData(String rawJson) {
         try {
             JSONObject wrapper = new JSONObject(rawJson);
             String msg = wrapper.optString("message", "");
-            if (msg.isEmpty() || !msg.contains("SUNNY_SYNC_V1")) return;
-            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-            prefs.edit().putString(KEY_PENDING_SYNC_JSON, msg).apply();
+            if (msg.isEmpty()) return;
+            boolean isSyncData = msg.contains("SUNNY_SYNC_V1");
+            boolean isPing = msg.contains("SUNNY_PING_V1");
+            if (!isSyncData && !isPing) return;
+
+            if (isSyncData) {
+                SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                prefs.edit().putString(KEY_PENDING_SYNC_JSON, msg).apply();
+            }
 
             Intent b = new Intent(ACTION_SYNC_RECEIVED);
             b.setPackage(getPackageName());
@@ -152,6 +246,33 @@ public class SunnySyncService extends Service {
             workerThread.interrupt();
             workerThread = null;
         }
+        if (heartbeatThread != null) {
+            heartbeatThread.interrupt();
+            heartbeatThread = null;
+        }
+        releaseWakeLock();
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        if (prefs.getBoolean(KEY_SYNC_ENABLED, false)) {
+            Intent restartIntent = new Intent(getApplicationContext(), SunnySyncService.class);
+            restartIntent.setAction(ACTION_START);
+            restartIntent.putExtra("topic", prefs.getString(KEY_SYNC_TOPIC, ""));
+            restartIntent.putExtra("deviceId", prefs.getString(KEY_SYNC_DEVICE_ID, ""));
+            PendingIntent pi = PendingIntent.getService(
+                    getApplicationContext(),
+                    2,
+                    restartIntent,
+                    PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE
+            );
+            AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+            if (am != null) {
+                am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 1000, pi);
+            }
+        }
+        super.onTaskRemoved(rootIntent);
     }
 
     @Override
