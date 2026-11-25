@@ -785,12 +785,17 @@ export default function App() {
   }, [entries, syncEnabled, cleanSyncTopic]);
 
   // Real-time SSE listener + 24/7 native background service sync
+  const prevSyncEnabledRef = useRef(syncEnabled);
   useEffect(() => {
     if (!syncEnabled || !cleanSyncTopic) {
       setSyncStatus('off');
-      window.SunnyNativeBridge?.stopBackgroundSync?.();
+      if (prevSyncEnabledRef.current) {
+        window.SunnyNativeBridge?.stopBackgroundSync?.();
+      }
+      prevSyncEnabledRef.current = false;
       return;
     }
+    prevSyncEnabledRef.current = true;
     setSyncStatus('connecting');
     window.SunnyNativeBridge?.startBackgroundSync?.(cleanSyncTopic);
 
@@ -818,10 +823,11 @@ export default function App() {
 
     const sendHeartbeat = async () => {
       try {
-        await fetch(`https://ntfy.sh/${cleanSyncTopic}`, {
+        const res = await fetch(`https://ntfy.sh/${cleanSyncTopic}`, {
           method: 'POST',
           body: JSON.stringify({ type: 'SUNNY_PING_V1', senderId: deviceId, sentAt: Date.now() }),
         });
+        if (res.ok) setSyncStatus('live');
       } catch {
         // ignore
       }
@@ -3314,16 +3320,21 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => {
-                          if (!syncRoomId.trim()) {
-                            showToast('पहले कोई गुप्त कोड लिखें या 🎲 नया कोड बनाएं');
-                            return;
+                          let activeCode = syncRoomId.trim();
+                          if (!activeCode && !syncEnabled) {
+                            activeCode = `sunny-${Math.floor(1000 + Math.random() * 9000)}`;
+                            setSyncRoomId(activeCode);
                           }
                           const next = !syncEnabled;
                           setSyncEnabled(next);
                           if (next) {
-                            setTimeout(() => pushSyncSnapshot(entries), 150);
+                            setTimeout(() => pushSyncSnapshot(entries), 200);
                           }
-                          showToast(next ? '🟢 लाइव सिंक चालू हो गया' : '⚪ लाइव सिंक बंद हो गया');
+                          showToast(
+                            next
+                              ? `🟢 लाइव सिंक चालू हो गया (कोड: ${activeCode})`
+                              : '⚪ लाइव सिंक बंद हो गया'
+                          );
                         }}
                         style={{
                           flex: 1.5,
