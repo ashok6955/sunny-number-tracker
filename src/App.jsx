@@ -594,6 +594,7 @@ export default function App() {
       localStorage.setItem(STORAGE_KEYS.THEME, themeMode);
       localStorage.setItem('sunny_tracker_owner_v1', chartOwnerName);
       localStorage.setItem('sunny_tracker_failed_patterns_v1', JSON.stringify(failedPatterns));
+      window.SunnyNativeBridge?.saveFailedPatternsJson?.(JSON.stringify(failedPatterns));
       localStorage.setItem('sunny_tracker_auto_paste_v1', String(autoPasteEnabled));
       window.SunnyNativeBridge?.setAutoEnabled?.(autoPasteEnabled);
     } catch {
@@ -917,6 +918,21 @@ export default function App() {
     setPendingConfirm(null);
     if (wasBridge && window.SunnyNativeBridge?.returnToPreviousApp) {
       window.SunnyNativeBridge.returnToPreviousApp();
+    }
+  };
+
+  const handleMarkWrongAndSaveFailed = () => {
+    if (!pendingConfirm) return;
+    const { rawText, fromBridge } = pendingConfirm;
+    recordFailedPatterns(
+      [{ rawLine: rawText.trim(), reason: 'यूज़र ने गलत पार्सिंग मार्क किया (फेल में डाला)' }],
+      rawText
+    );
+    setPendingConfirm(null);
+    setInputText('');
+    showToast('⚠️ फेल पैटर्न हिस्ट्री में सेव हो गया');
+    if (fromBridge && window.SunnyNativeBridge?.returnToPreviousApp) {
+      setTimeout(() => window.SunnyNativeBridge.returnToPreviousApp(), 250);
     }
   };
 
@@ -3577,8 +3593,8 @@ export default function App() {
                       border: `1px solid ${t.cardBorder}`,
                       color: t.textPrimary,
                       borderRadius: '10px',
-                      padding: '12px',
-                      fontSize: '13px',
+                      padding: '12px 8px',
+                      fontSize: '12px',
                       fontWeight: 700,
                       cursor: 'pointer',
                     }}
@@ -3587,20 +3603,37 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    onClick={handleConfirmPendingAdd}
+                    onClick={handleMarkWrongAndSaveFailed}
                     style={{
-                      flex: 2,
-                      background: t.accent,
-                      border: 'none',
-                      color: '#ffffff',
+                      flex: 1.3,
+                      background: 'rgba(234, 88, 12, 0.18)',
+                      border: '1px solid #f97316',
+                      color: '#fdba74',
                       borderRadius: '10px',
-                      padding: '12px',
-                      fontSize: '13px',
+                      padding: '12px 8px',
+                      fontSize: '12px',
                       fontWeight: 800,
                       cursor: 'pointer',
                     }}
                   >
-                    कन्फ़र्म करें (₹{msgTotal.toLocaleString('en-IN')})
+                    ⚠️ गलत जुड़ा
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmPendingAdd}
+                    style={{
+                      flex: 1.7,
+                      background: t.accent,
+                      border: 'none',
+                      color: '#ffffff',
+                      borderRadius: '10px',
+                      padding: '12px 8px',
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    कन्फ़र्म (₹{msgTotal.toLocaleString('en-IN')})
                   </button>
                 </div>
               </div>

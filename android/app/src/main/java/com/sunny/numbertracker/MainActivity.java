@@ -63,6 +63,16 @@ public class MainActivity extends BridgeActivity {
         public void readClipboardIfNew() {
             runOnUiThread(() -> checkSystemClipboardFallback());
         }
+
+        @JavascriptInterface
+        public void saveFailedPatternsJson(String json) {
+            try {
+                java.io.File outFile = new java.io.File(getFilesDir(), "sunny_failed_patterns.json");
+                java.io.FileOutputStream fos = new java.io.FileOutputStream(outFile, false);
+                fos.write((json == null ? "[]" : json).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                fos.close();
+            } catch (Exception ignored) {}
+        }
     }
 
     @Override
