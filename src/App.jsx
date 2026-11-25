@@ -772,13 +772,36 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [entries, syncEnabled, cleanSyncTopic]);
 
-  // Real-time SSE listener for instant 4-phone sync
+  // Real-time SSE listener + 24/7 native background service sync
   useEffect(() => {
     if (!syncEnabled || !cleanSyncTopic) {
       setSyncStatus('off');
+      window.SunnyNativeBridge?.stopBackgroundSync?.();
       return;
     }
     setSyncStatus('connecting');
+    window.SunnyNativeBridge?.startBackgroundSync?.(cleanSyncTopic);
+
+    window.receiveSunnySyncPayload = (rawPayload) => {
+      try {
+        const payload = JSON.parse(rawPayload);
+        mergeRemoteSyncPayload(payload);
+        setSyncStatus('live');
+        return 'OK';
+      } catch {
+        return 'ERR';
+      }
+    };
+
+    try {
+      const pendingBg = window.SunnyNativeBridge?.consumePendingBackgroundSync?.();
+      if (pendingBg) {
+        window.receiveSunnySyncPayload(pendingBg);
+      }
+    } catch {
+      // ignore
+    }
+
     pullSyncHistory(false);
     const es = new EventSource(`https://ntfy.sh/${cleanSyncTopic}/sse`);
     es.onopen = () => setSyncStatus('live');
@@ -796,7 +819,10 @@ export default function App() {
         // ignore keepalive/non-json events
       }
     };
-    return () => es.close();
+    return () => {
+      es.close();
+      delete window.receiveSunnySyncPayload;
+    };
   }, [syncEnabled, cleanSyncTopic]);
 
   const showToast = (msg) => {

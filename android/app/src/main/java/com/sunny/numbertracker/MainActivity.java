@@ -1,5 +1,6 @@
 package com.sunny.numbertracker;
 
+import android.Manifest;
 import android.content.BroadcastReceiver;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -7,10 +8,13 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import com.getcapacitor.BridgeActivity;
 import org.json.JSONObject;
 
@@ -20,15 +24,23 @@ public class MainActivity extends BridgeActivity {
     private static final String KEY_PENDING_CLIP = "pending_clip";
     private static final String KEY_AUTO_ENABLED = "auto_clipboard_enabled";
     private static final String KEY_LAST_CLIP = "last_seen_clip";
+    private static final String KEY_PENDING_SYNC_JSON = "bg_pending_sync_json";
 
     private final BroadcastReceiver clipReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (intent != null && ACTION_CLIP_COPIED.equals(intent.getAction())) {
+            if (intent == null) return;
+            String act = intent.getAction();
+            if (ACTION_CLIP_COPIED.equals(act)) {
                 String text = intent.getStringExtra("clip_text");
                 if (text != null && !text.trim().isEmpty()) {
                     storePendingClip(text);
                     deliverPendingClipToWeb();
+                }
+            } else if (SunnySyncService.ACTION_SYNC_RECEIVED.equals(act)) {
+                String payload = intent.getStringExtra("payload");
+                if (payload != null && !payload.isEmpty()) {
+                    deliverSyncPayloadToWeb(payload);
                 }
             }
         }
@@ -73,6 +85,45 @@ public class MainActivity extends BridgeActivity {
                 fos.close();
             } catch (Exception ignored) {}
         }
+
+        @JavascriptInterface
+        public void startBackgroundSync(String topic) {
+            if (topic == null || topic.trim().isEmpty()) return;
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, 201);
+                }
+                Intent svc = new Intent(MainActivity.this, SunnySyncService.class);
+                svc.setAction(SunnySyncService.ACTION_START);
+                svc.putExtra("topic", topic.trim());
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(svc);
+                } else {
+                    startService(svc);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void stopBackgroundSync() {
+            runOnUiThread(() -> {
+                Intent svc = new Intent(MainActivity.this, SunnySyncService.class);
+                svc.setAction(SunnySyncService.ACTION_STOP);
+                startService(svc);
+            });
+        }
+
+        @JavascriptInterface
+        public String consumePendingBackgroundSync() {
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            String raw = prefs.getString(KEY_PENDING_SYNC_JSON, "");
+            if (raw != null && !raw.isEmpty()) {
+                prefs.edit().remove(KEY_PENDING_SYNC_JSON).apply();
+                return raw;
+            }
+            return "";
+        }
     }
 
     @Override
@@ -82,6 +133,7 @@ public class MainActivity extends BridgeActivity {
             getBridge().getWebView().addJavascriptInterface(new SunnyNativeBridge(), "SunnyNativeBridge");
         }
         IntentFilter filter = new IntentFilter(ACTION_CLIP_COPIED);
+        filter.addAction(SunnySyncService.ACTION_SYNC_RECEIVED);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(clipReceiver, filter, Context.RECEIVER_EXPORTED);
         } else {
@@ -100,7 +152,13 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         if (getBridge() != null && getBridge().getWebView() != null) {
-            getBridge().getWebView().postDelayed(this::deliverPendingClipToWeb, 300);
+            getBridge().getWebView().postDelayed(() -> {
+                deliverPendingClipToWeb();
+                String bgSync = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(KEY_PENDING_SYNC_JSON, "");
+                if (bgSync != null && !bgSync.isEmpty()) {
+                    deliverSyncPayloadToWeb(bgSync);
+                }
+            }, 300);
         }
     }
 
@@ -154,6 +212,18 @@ public class MainActivity extends BridgeActivity {
         webView.post(() -> webView.evaluateJavascript(js, value -> {
             if (value != null && value.contains("OK")) {
                 prefs.edit().remove(KEY_PENDING_CLIP).apply();
+            }
+        }));
+    }
+
+    private void deliverSyncPayloadToWeb(String payload) {
+        if (getBridge() == null || getBridge().getWebView() == null) return;
+        WebView webView = getBridge().getWebView();
+        String quoted = JSONObject.quote(payload);
+        String js = "(function(){ return typeof window.receiveSunnySyncPayload === 'function' ? window.receiveSunnySyncPayload(" + quoted + ") : 'WAIT'; })();";
+        webView.post(() -> webView.evaluateJavascript(js, value -> {
+            if (value != null && value.contains("OK")) {
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().remove(KEY_PENDING_SYNC_JSON).apply();
             }
         }));
     }
