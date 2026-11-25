@@ -847,29 +847,54 @@ export default function App() {
     window.addEventListener('sunny_clip_received', handleBridgeClip);
     window.receiveSunnyClip = handleIncomingText;
 
-    const checkNativeClipboard = () => {
+    const pullPendingFromNative = () => {
       try {
-        if (autoPasteEnabled && window.SunnyNativeBridge?.readClipboardIfNew) {
+        if (!autoPasteEnabled) return;
+        if (window.SunnyNativeBridge?.consumePendingClip) {
+          const pending = window.SunnyNativeBridge.consumePendingClip();
+          if (pending && pending.trim()) {
+            handleIncomingText(pending);
+            return;
+          }
+        }
+        if (window.SunnyNativeBridge?.readClipboardIfNew) {
           window.SunnyNativeBridge.readClipboardIfNew();
         }
       } catch {
         // ignore
       }
     };
-    checkNativeClipboard();
-    window.addEventListener('focus', checkNativeClipboard);
+    pullPendingFromNative();
+    window.addEventListener('focus', pullPendingFromNative);
     const onVis = () => {
-      if (document.visibilityState === 'visible') checkNativeClipboard();
+      if (document.visibilityState === 'visible') pullPendingFromNative();
     };
     document.addEventListener('visibilitychange', onVis);
 
     return () => {
       window.removeEventListener('sunny_clip_received', handleBridgeClip);
-      window.removeEventListener('focus', checkNativeClipboard);
+      window.removeEventListener('focus', pullPendingFromNative);
       document.removeEventListener('visibilitychange', onVis);
       delete window.receiveSunnyClip;
     };
   });
+
+  // Auto-close FAILED bridge modal after 5 seconds and return to chat
+  const [failCountdown, setFailCountdown] = useState(5);
+  useEffect(() => {
+    if (!pendingConfirm?.isError) return;
+    setFailCountdown(5);
+    const interval = setInterval(() => {
+      setFailCountdown((c) => (c > 1 ? c - 1 : 0));
+    }, 1000);
+    const timer = setTimeout(() => {
+      handleCancelPendingAdd();
+    }, 5000);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timer);
+    };
+  }, [pendingConfirm]);
 
   const handleConfirmPendingAdd = () => {
     if (!pendingConfirm) return;
@@ -3331,8 +3356,8 @@ export default function App() {
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h2 style={{ fontSize: '15px', fontWeight: 800, color: '#fb7185' }}>
-                      ❌ मुझे यह पैटर्न समझ नहीं आया
+                    <h2 style={{ fontSize: '16px', fontWeight: 800, color: '#fb7185' }}>
+                      ❌ FAILED — पैटर्न समझ नहीं आया
                     </h2>
                     <button
                       onClick={handleCancelPendingAdd}
@@ -3347,7 +3372,10 @@ export default function App() {
                     </button>
                   </div>
                   <p style={{ fontSize: '12px', color: t.textSecondary }}>
-                    यह मैसेज फेल पैटर्न हिस्ट्री में सेव कर दिया गया है (आप इसे टूल्स से कॉपी करके भेज सकते हैं):
+                    यह पर्ची फेल पैटर्न हिस्ट्री में सेव हो गई है।{' '}
+                    <strong style={{ color: '#fbbf24' }}>
+                      {failCountdown} सेकंड में अपने-आप बंद हो जाएगा...
+                    </strong>
                   </p>
                   <div
                     style={{
