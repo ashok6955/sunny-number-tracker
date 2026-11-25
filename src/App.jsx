@@ -587,7 +587,9 @@ export default function App() {
     () => localStorage.getItem('sunny_tracker_sync_enabled_v1') === 'true'
   );
   const [syncStatus, setSyncStatus] = useState('off'); // 'off' | 'connecting' | 'live' | 'error'
+  const [connectedCount, setConnectedCount] = useState(1);
   const [lastSyncTime, setLastSyncTime] = useState('');
+  const peersRef = useRef(new Map());
   const [deviceId] = useState(() => {
     let id = localStorage.getItem('sunny_tracker_device_id_v1');
     if (!id) {
@@ -657,7 +659,17 @@ export default function App() {
   };
 
   const mergeRemoteSyncPayload = (payload) => {
-    if (!payload || payload.type !== 'SUNNY_SYNC_V1' || payload.senderId === deviceId) return false;
+    if (!payload) return false;
+    if (payload.senderId) {
+      peersRef.current.set(payload.senderId, Date.now());
+      const now = Date.now();
+      let active = 1; // include self
+      for (const [pid, ts] of peersRef.current.entries()) {
+        if (pid !== deviceId && now - ts < 50000) active++;
+      }
+      setConnectedCount(active);
+    }
+    if (payload.type !== 'SUNNY_SYNC_V1' || payload.senderId === deviceId) return false;
     let changed = false;
 
     if (Array.isArray(payload.deletedIds)) {
@@ -803,6 +815,28 @@ export default function App() {
     }
 
     pullSyncHistory(false);
+
+    const sendHeartbeat = async () => {
+      try {
+        await fetch(`https://ntfy.sh/${cleanSyncTopic}`, {
+          method: 'POST',
+          body: JSON.stringify({ type: 'SUNNY_PING_V1', senderId: deviceId, sentAt: Date.now() }),
+        });
+      } catch {
+        // ignore
+      }
+    };
+    sendHeartbeat();
+    const hbInterval = setInterval(() => {
+      sendHeartbeat();
+      const now = Date.now();
+      let active = 1;
+      for (const [pid, ts] of peersRef.current.entries()) {
+        if (pid !== deviceId && now - ts < 50000) active++;
+      }
+      setConnectedCount(active);
+    }, 20000);
+
     const es = new EventSource(`https://ntfy.sh/${cleanSyncTopic}/sse`);
     es.onopen = () => setSyncStatus('live');
     es.onerror = () => setSyncStatus('error');
@@ -820,6 +854,7 @@ export default function App() {
       }
     };
     return () => {
+      clearInterval(hbInterval);
       es.close();
       delete window.receiveSunnySyncPayload;
     };
@@ -1627,7 +1662,7 @@ export default function App() {
                 }}
               >
                 <Wifi size={13} color={syncEnabled && syncStatus === 'live' ? '#ffffff' : undefined} />
-                {syncEnabled ? (syncStatus === 'live' ? 'Live' : 'Sync...') : 'Sync'}
+                {syncEnabled ? (syncStatus === 'live' ? `Connected: ${connectedCount}` : 'Sync...') : 'Sync'}
               </button>
               <button
                 onClick={() => setThemeMode((m) => (m === 'dark' ? 'light' : 'dark'))}
@@ -3200,7 +3235,7 @@ export default function App() {
                         <p style={{ fontSize: '11px', color: t.textSecondary }}>
                           {syncEnabled
                             ? syncStatus === 'live'
-                              ? `🟢 लाइव जुड़ा है${lastSyncTime ? ` • अंतिम सिंक: ${lastSyncTime}` : ''}`
+                              ? `🟢 Connected: ${connectedCount} फोन${lastSyncTime ? ` • अंतिम सिंक: ${lastSyncTime}` : ''}`
                               : '🟡 कनेक्ट हो रहा है...'
                             : '⚪ अभी बंद है'}
                         </p>
