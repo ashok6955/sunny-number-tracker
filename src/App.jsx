@@ -82,14 +82,27 @@ function getPalatNumber(num) {
  * - "7.AB.(50)" -> digit 7 Andar & Bahar @ 50/10 = ₹5 each
  */
 function tryParseHarufLine(line) {
-  const hasHarufWord = /\b(?:haruf|harf|harup|haroop|hrf|bahar|bahr|andar|ander)\b/i.test(line);
+  const hasHarufWord =
+    /\b(?:haruf|harf|harup|haroop|hrf|bahar|bahr|andar|ander)\b/i.test(line) ||
+    /(?:हरूफ|हरफ|बाहर|अंदर|अन्दर)/.test(line);
   const hasABToken = /(?:^|[\s.,(/])(?:AB|BA)(?:$|[\s.,)/])/i.test(line);
   const hasAttachedSide = /(?:^|[\s.,])(?:[AB][\s.,]*\d|\d[\s.,]*[AB])(?:$|[\s.,(/])/i.test(line);
   if (!hasHarufWord && !hasABToken && !hasAttachedSide) return null;
 
-  const hasAB = /\b(?:ab|ba)\b/i.test(line) || /\b(?:andar|ander)\b.*\b(?:bahar|bahr)\b/i.test(line);
-  let hasA = hasAB || /\b(?:andar|ander)\b/i.test(line) || /(?:^|[\s.,])a[\s.,]*\d|\d[\s.,]*a(?:$|[\s.,(/])/i.test(line);
-  let hasB = hasAB || /\b(?:bahar|bahr)\b/i.test(line) || /(?:^|[\s.,])b[\s.,]*\d|\d[\s.,]*b(?:$|[\s.,(/])/i.test(line);
+  const hasAB =
+    /\b(?:ab|ba)\b/i.test(line) ||
+    (/\b(?:andar|ander)\b/i.test(line) && /\b(?:bahar|bahr)\b/i.test(line)) ||
+    (/(?:अंदर|अन्दर)/.test(line) && /बाहर/.test(line));
+  let hasA =
+    hasAB ||
+    /\b(?:andar|ander)\b/i.test(line) ||
+    /(?:अंदर|अन्दर)/.test(line) ||
+    /(?:^|[\s.,])a[\s.,]*\d|\d[\s.,]*a(?:$|[\s.,(/])/i.test(line);
+  let hasB =
+    hasAB ||
+    /\b(?:bahar|bahr)\b/i.test(line) ||
+    /बाहर/.test(line) ||
+    /(?:^|[\s.,])b[\s.,]*\d|\d[\s.,]*b(?:$|[\s.,(/])/i.test(line);
   if (!hasA && !hasB) {
     hasA = true;
     hasB = true;
@@ -1042,22 +1055,71 @@ export default function App() {
         : [];
     if (itemsToSave.length === 0) return 0;
 
+    const newRecords = itemsToSave.map((item) => ({
+      id: `${now}-${Math.random().toString(36).slice(2, 7)}`,
+      category: activeCategory,
+      time: timeStr,
+      parserVersion: PARSER_VERSION,
+      status: 'pending',
+      senderId: deviceId,
+      rawLine: item.rawLine,
+      reason: item.reason,
+    }));
+
     setFailedPatterns((prev) => {
-      const next = [...prev];
-      for (const item of itemsToSave) {
-        next.unshift({
-          id: `${now}-${Math.random().toString(36).slice(2, 7)}`,
-          category: activeCategory,
-          time: timeStr,
-          parserVersion: PARSER_VERSION,
-          status: 'pending',
-          rawLine: item.rawLine,
-          reason: item.reason,
+      const next = [...newRecords, ...prev];
+      return next.slice(0, 150);
+    });
+
+    // Push failed patterns to shared 4-phone backup room (₹0, no account)
+    const roomClean = (syncRoomId || DEFAULT_SYNC_ROOM).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    if (roomClean) {
+      for (const rec of newRecords) {
+        fetch(`https://ntfy.sh/sunny_jnt_failed_${roomClean}`, {
+          method: 'POST',
+          body: JSON.stringify({ type: 'SUNNY_FAILED_V1', ...rec }),
+        }).catch(() => {});
+      }
+    }
+    return itemsToSave.length;
+  };
+
+  const pullFailedBackup = async (showNotice = true) => {
+    const roomClean = (syncRoomId || DEFAULT_SYNC_ROOM).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    if (!roomClean) return;
+    try {
+      const res = await fetch(`https://ntfy.sh/sunny_jnt_failed_${roomClean}/json?poll=1&since=72h`);
+      const text = await res.text();
+      const remoteList = [];
+      for (const line of text.split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const evt = JSON.parse(line);
+          if (evt && evt.message) {
+            const p = JSON.parse(evt.message);
+            if (p && p.type === 'SUNNY_FAILED_V1' && p.rawLine) {
+              remoteList.push(p);
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+      if (remoteList.length > 0) {
+        setFailedPatterns((prev) => {
+          const byId = new Map(prev.map((x) => [x.id, x]));
+          for (const r of remoteList) {
+            if (!byId.has(r.id)) byId.set(r.id, r);
+          }
+          return [...byId.values()].slice(0, 200);
         });
       }
-      return next.slice(0, 100);
-    });
-    return itemsToSave.length;
+      if (showNotice) {
+        showToast(remoteList.length > 0 ? `🔄 ${remoteList.length} फेल पैटर्न चारों फोन से सिंक हुए` : 'कोई नया फेल पैटर्न नहीं मिला');
+      }
+    } catch {
+      if (showNotice) showToast('इंटरनेट कनेक्शन जाँचें');
+    }
   };
 
   const handleCopyFailedPatterns = async () => {
@@ -3432,6 +3494,23 @@ export default function App() {
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <button
+                        type="button"
+                        onClick={() => pullFailedBackup(true)}
+                        title="चारों फोनों के फेल पैटर्न एक जगह लाएं"
+                        style={{
+                          background: 'rgba(2, 132, 199, 0.16)',
+                          border: '1px solid #38bdf8',
+                          color: '#38bdf8',
+                          borderRadius: '8px',
+                          padding: '4px 8px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        🔄 4-फोन लाएं
+                      </button>
                       {failedPatterns.length > 0 && (
                         <button
                           type="button"
