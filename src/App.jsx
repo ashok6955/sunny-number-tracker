@@ -464,6 +464,18 @@ function analyzeWhatsAppText(raw) {
   return { results, failed };
 }
 
+function extractDeclaredTotal(raw) {
+  if (!raw) return null;
+  const matches = [
+    ...raw.matchAll(
+      /(?:टोटल|कुल|grand\s*total|total|tot|ttl|sum|\bto\.|\bt)\s*[-:=*>₹.\s]*(\d+(?:\.\d+)?)/gi
+    ),
+  ];
+  if (matches.length === 0) return null;
+  const last = parseFloat(matches[matches.length - 1][1]);
+  return Number.isFinite(last) && last > 0 ? last : null;
+}
+
 function parseWhatsAppText(raw) {
   return analyzeWhatsAppText(raw).results;
 }
@@ -804,24 +816,43 @@ export default function App() {
     setPendingConfirm({ results, failed, sourceLabel, rawText, fromBridge });
   };
 
-  // Listen for clipboard text forwarded by HeliBoard Android bridge
+  // Listen for clipboard text forwarded by HeliBoard Android bridge (both push + pull)
   useEffect(() => {
-    const handleBridgeClip = (ev) => {
-      const text = ev?.detail;
+    const handleIncomingText = (text) => {
       if (typeof text === 'string' && text.trim()) {
         setInputText(text);
         openConfirmForText(text, 'कीबोर्ड ✓ ', true);
+        return 'OK';
       }
+      return 'EMPTY';
     };
+    const handleBridgeClip = (ev) => handleIncomingText(ev?.detail);
     window.addEventListener('sunny_clip_received', handleBridgeClip);
-    window.receiveSunnyClip = (text) => {
-      if (typeof text === 'string' && text.trim()) {
-        setInputText(text);
-        openConfirmForText(text, 'कीबोर्ड ✓ ', true);
+    window.receiveSunnyClip = handleIncomingText;
+
+    const pullPendingFromNative = () => {
+      try {
+        if (window.SunnyNativeBridge?.consumePendingClip) {
+          const pending = window.SunnyNativeBridge.consumePendingClip();
+          if (pending && pending.trim()) {
+            handleIncomingText(pending);
+          }
+        }
+      } catch {
+        // ignore
       }
     };
+    pullPendingFromNative();
+    window.addEventListener('focus', pullPendingFromNative);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') pullPendingFromNative();
+    };
+    document.addEventListener('visibilitychange', onVis);
+
     return () => {
       window.removeEventListener('sunny_clip_received', handleBridgeClip);
+      window.removeEventListener('focus', pullPendingFromNative);
+      document.removeEventListener('visibilitychange', onVis);
       delete window.receiveSunnyClip;
     };
   });
@@ -3225,147 +3256,199 @@ export default function App() {
           </div>
         )}
 
-        {/* Confirmation Preview Modal before Adding */}
-        {pendingConfirm && (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              background: 'rgba(2, 6, 23, 0.72)',
-              display: 'flex',
-              alignItems: 'flex-end',
-              justifyContent: 'center',
-              zIndex: 55,
-            }}
-            onClick={() => setPendingConfirm(null)}
-          >
+        {/* Focused Full-Screen Confirmation Preview Modal before Adding */}
+        {pendingConfirm && (() => {
+          const msgTotal = pendingConfirm.results.reduce((s, x) => s + x.amount, 0);
+          const declaredTotal = extractDeclaredTotal(pendingConfirm.rawText);
+          const currentCatTotal = categoryTotals[activeCategory] || 0;
+          const nextCatTotal = currentCatTotal + msgTotal;
+          const totalMatches = declaredTotal !== null && Math.abs(declaredTotal - msgTotal) < 0.01;
+
+          return (
             <div
-              onClick={(e) => e.stopPropagation()}
               style={{
-                width: '100%',
-                background: t.cardBg,
-                borderTop: `2px solid ${t.accent}`,
-                borderRadius: '20px 20px 0 0',
-                padding: '16px',
-                maxHeight: '78vh',
+                position: 'absolute',
+                inset: 0,
+                background: 'rgba(2, 6, 23, 0.94)',
                 display: 'flex',
-                flexDirection: 'column',
-                gap: '10px',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '14px',
+                zIndex: 60,
               }}
+              onClick={handleCancelPendingAdd}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  width: '100%',
+                  background: t.cardBg,
+                  border: `2px solid ${t.accent}`,
+                  borderRadius: '20px',
+                  padding: '16px',
+                  maxHeight: '88vh',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  boxShadow: '0 20px 50px rgba(0, 0, 0, 0.7)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <h2 style={{ fontSize: '15px', fontWeight: 800, color: t.textPrimary }}>
                     ✅ {activeCategory} में जोड़ने की पुष्टि करें
                   </h2>
-                  <p style={{ fontSize: '11px', color: t.textSecondary }}>
-                    कुल {pendingConfirm.results.length} नंबर • टोटल: ₹
-                    {pendingConfirm.results
-                      .reduce((s, x) => s + x.amount, 0)
-                      .toLocaleString('en-IN')}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setPendingConfirm(null)}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: t.textSecondary,
-                    cursor: 'pointer',
-                  }}
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              {pendingConfirm.failed.length > 0 && (
-                <div
-                  style={{
-                    fontSize: '11px',
-                    color: '#fb7185',
-                    background: 'rgba(225, 29, 72, 0.12)',
-                    border: '1px solid rgba(244, 63, 94, 0.4)',
-                    borderRadius: '8px',
-                    padding: '6px 9px',
-                  }}
-                >
-                  ⚠️ {pendingConfirm.failed.length} लाइन समझ नहीं आई (फेल हिस्ट्री में सेव होगी)
-                </div>
-              )}
-
-              <div
-                className="grid-scroll"
-                style={{
-                  overflowY: 'auto',
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: '6px',
-                  maxHeight: '240px',
-                  padding: '4px 0',
-                }}
-              >
-                {pendingConfirm.results.map((item, idx) => (
-                  <span
-                    key={`${item.number}-${idx}`}
+                  <button
+                    onClick={handleCancelPendingAdd}
                     style={{
-                      background: t.inputBg,
-                      border: `1px solid ${t.cardBorder}`,
-                      borderRadius: '8px',
-                      padding: '5px 9px',
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      color: t.textPrimary,
+                      background: 'transparent',
+                      border: 'none',
+                      color: t.textSecondary,
+                      cursor: 'pointer',
                     }}
                   >
-                    {String(item.number).padStart(2, '0')} ={' '}
-                    <span style={{ color: t.accentText }}>₹{item.amount}</span>
-                  </span>
-                ))}
-              </div>
+                    <X size={20} />
+                  </button>
+                </div>
 
-              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                <button
-                  type="button"
-                  onClick={handleCancelPendingAdd}
+                {/* Big Total Match & Game Total Card */}
+                <div
                   style={{
-                    flex: 1,
-                    background: t.inputBg,
-                    border: `1px solid ${t.cardBorder}`,
-                    color: t.textPrimary,
-                    borderRadius: '10px',
-                    padding: '11px',
-                    fontSize: '13px',
-                    fontWeight: 700,
-                    cursor: 'pointer',
+                    background: '#000000',
+                    border: '1.5px solid #f59e0b',
+                    borderRadius: '12px',
+                    padding: '10px 12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
                   }}
                 >
-                  रद्द करें
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmPendingAdd}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12px', color: '#cbd5e1', fontWeight: 600 }}>
+                      इस मैसेज का टोटल ({pendingConfirm.results.length} नंबर):
+                    </span>
+                    <span style={{ fontSize: '18px', fontWeight: 800, color: '#fbbf24' }}>
+                      ₹{msgTotal.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                  {declaredTotal !== null && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        color: totalMatches ? '#6ee7b7' : '#fb7185',
+                      }}
+                    >
+                      <span>कस्टमर का लिखा टोटल: ₹{declaredTotal.toLocaleString('en-IN')}</span>
+                      <span>{totalMatches ? '✓ टोटल बराबर है' : '⚠️ टोटल अलग है'}</span>
+                    </div>
+                  )}
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      fontSize: '11px',
+                      color: '#94a3b8',
+                      borderTop: '1px dashed #334155',
+                      paddingTop: '4px',
+                      marginTop: '2px',
+                    }}
+                  >
+                    <span>{activeCategory} गेम टोटल (जुड़ने के बाद):</span>
+                    <strong style={{ color: '#38bdf8' }}>
+                      ₹{currentCatTotal.toLocaleString('en-IN')} → ₹{nextCatTotal.toLocaleString('en-IN')}
+                    </strong>
+                  </div>
+                </div>
+
+                {pendingConfirm.failed.length > 0 && (
+                  <div
+                    style={{
+                      fontSize: '11px',
+                      color: '#fb7185',
+                      background: 'rgba(225, 29, 72, 0.12)',
+                      border: '1px solid rgba(244, 63, 94, 0.4)',
+                      borderRadius: '8px',
+                      padding: '6px 9px',
+                    }}
+                  >
+                    ⚠️ {pendingConfirm.failed.length} लाइन समझ नहीं आई (फेल हिस्ट्री में सेव होगी)
+                  </div>
+                )}
+
+                <div
+                  className="grid-scroll"
                   style={{
-                    flex: 2,
-                    background: t.accent,
-                    border: 'none',
-                    color: '#ffffff',
-                    borderRadius: '10px',
-                    padding: '11px',
-                    fontSize: '13px',
-                    fontWeight: 800,
-                    cursor: 'pointer',
+                    overflowY: 'auto',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '6px',
+                    maxHeight: '220px',
+                    padding: '4px 0',
                   }}
                 >
-                  कन्फ़र्म करें (₹
-                  {pendingConfirm.results
-                    .reduce((s, x) => s + x.amount, 0)
-                    .toLocaleString('en-IN')}
-                  )
-                </button>
+                  {pendingConfirm.results.map((item, idx) => (
+                    <span
+                      key={`${item.number}-${idx}`}
+                      style={{
+                        background: t.inputBg,
+                        border: `1px solid ${t.cardBorder}`,
+                        borderRadius: '8px',
+                        padding: '5px 9px',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        color: t.textPrimary,
+                      }}
+                    >
+                      {String(item.number).padStart(2, '0')} ={' '}
+                      <span style={{ color: t.accentText }}>₹{item.amount}</span>
+                    </span>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                  <button
+                    type="button"
+                    onClick={handleCancelPendingAdd}
+                    style={{
+                      flex: 1,
+                      background: t.inputBg,
+                      border: `1px solid ${t.cardBorder}`,
+                      color: t.textPrimary,
+                      borderRadius: '10px',
+                      padding: '12px',
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    रद्द करें
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmPendingAdd}
+                    style={{
+                      flex: 2,
+                      background: t.accent,
+                      border: 'none',
+                      color: '#ffffff',
+                      borderRadius: '10px',
+                      padding: '12px',
+                      fontSize: '13px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    कन्फ़र्म करें (₹{msgTotal.toLocaleString('en-IN')})
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );

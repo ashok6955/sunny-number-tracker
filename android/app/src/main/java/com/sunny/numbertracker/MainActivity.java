@@ -22,6 +22,17 @@ public class MainActivity extends BridgeActivity {
         public void returnToPreviousApp() {
             runOnUiThread(() -> moveTaskToBack(true));
         }
+
+        @JavascriptInterface
+        public String consumePendingClip() {
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            String pending = prefs.getString(KEY_PENDING_CLIP, null);
+            if (pending != null && !pending.trim().isEmpty()) {
+                prefs.edit().remove(KEY_PENDING_CLIP).apply();
+                return pending;
+            }
+            return "";
+        }
     }
 
     private final BroadcastReceiver clipReceiver = new BroadcastReceiver() {
@@ -96,9 +107,11 @@ public class MainActivity extends BridgeActivity {
         if (getBridge() == null || getBridge().getWebView() == null) return;
         WebView webView = getBridge().getWebView();
         String quoted = JSONObject.quote(pending);
-        String js = "if (typeof window.receiveSunnyClip === 'function') { window.receiveSunnyClip(" + quoted + "); }";
+        String js = "(function(){ return typeof window.receiveSunnyClip === 'function' ? window.receiveSunnyClip(" + quoted + ") : 'WAIT'; })();";
         webView.post(() -> webView.evaluateJavascript(js, value -> {
-            prefs.edit().remove(KEY_PENDING_CLIP).apply();
+            if (value != null && value.contains("OK")) {
+                prefs.edit().remove(KEY_PENDING_CLIP).apply();
+            }
         }));
     }
 }
