@@ -79,10 +79,20 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public void saveFailedPatternsJson(String json) {
             try {
+                byte[] data = (json == null ? "{}" : json).getBytes(java.nio.charset.StandardCharsets.UTF_8);
                 java.io.File outFile = new java.io.File(getFilesDir(), "sunny_failed_patterns.json");
                 java.io.FileOutputStream fos = new java.io.FileOutputStream(outFile, false);
-                fos.write((json == null ? "[]" : json).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                fos.write(data);
                 fos.close();
+
+                java.io.File extDir = getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS);
+                if (extDir != null) {
+                    if (!extDir.exists()) extDir.mkdirs();
+                    java.io.File extFile = new java.io.File(extDir, "sunny_failed_backup.json");
+                    java.io.FileOutputStream efos = new java.io.FileOutputStream(extFile, false);
+                    efos.write(data);
+                    efos.close();
+                }
             } catch (Exception ignored) {}
         }
 

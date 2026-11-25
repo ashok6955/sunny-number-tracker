@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 
 const CATEGORIES = ['DB', 'SG', 'FD', 'GB', 'GL', 'DS'];
+const PARSER_VERSION = 'v6';
+const DEFAULT_SYNC_ROOM = 'sunny-live-8899';
 const STORAGE_KEYS = {
   ENTRIES: 'sunny_tracker_entries_v1',
   CATEGORY: 'sunny_tracker_active_category_v1',
@@ -581,10 +583,10 @@ export default function App() {
     () => localStorage.getItem('sunny_tracker_auto_paste_v1') !== 'false'
   );
   const [syncRoomId, setSyncRoomId] = useState(
-    () => localStorage.getItem('sunny_tracker_sync_room_v1') || ''
+    () => localStorage.getItem('sunny_tracker_sync_room_v1') || DEFAULT_SYNC_ROOM
   );
   const [syncEnabled, setSyncEnabled] = useState(
-    () => localStorage.getItem('sunny_tracker_sync_enabled_v1') === 'true'
+    () => localStorage.getItem('sunny_tracker_sync_enabled_v1') !== 'false'
   );
   const [syncStatus, setSyncStatus] = useState('off'); // 'off' | 'connecting' | 'live' | 'error'
   const [connectedCount, setConnectedCount] = useState(1);
@@ -633,7 +635,18 @@ export default function App() {
       localStorage.setItem(STORAGE_KEYS.THEME, themeMode);
       localStorage.setItem('sunny_tracker_owner_v1', chartOwnerName);
       localStorage.setItem('sunny_tracker_failed_patterns_v1', JSON.stringify(failedPatterns));
-      window.SunnyNativeBridge?.saveFailedPatternsJson?.(JSON.stringify(failedPatterns));
+      const backupPayload = JSON.stringify(
+        {
+          parserVersion: PARSER_VERSION,
+          updatedAt: new Date().toISOString(),
+          syncRoomId,
+          totalEntries: entries.length,
+          failedPatterns,
+        },
+        null,
+        2
+      );
+      window.SunnyNativeBridge?.saveFailedPatternsJson?.(backupPayload);
       localStorage.setItem('sunny_tracker_auto_paste_v1', String(autoPasteEnabled));
       window.SunnyNativeBridge?.setAutoEnabled?.(autoPasteEnabled);
       localStorage.setItem('sunny_tracker_sync_room_v1', syncRoomId);
@@ -1036,6 +1049,8 @@ export default function App() {
           id: `${now}-${Math.random().toString(36).slice(2, 7)}`,
           category: activeCategory,
           time: timeStr,
+          parserVersion: PARSER_VERSION,
+          status: 'pending',
           rawLine: item.rawLine,
           reason: item.reason,
         });
