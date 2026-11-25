@@ -575,6 +575,9 @@ export default function App() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [copiedKey, setCopiedKey] = useState(null);
   const [gameTarget] = useState(30000);
+  const [autoPasteEnabled, setAutoPasteEnabled] = useState(
+    () => localStorage.getItem('sunny_tracker_auto_paste_v1') !== 'false'
+  );
   const [toast, setToast] = useState('');
   const [copied, setCopied] = useState(false);
 
@@ -591,10 +594,12 @@ export default function App() {
       localStorage.setItem(STORAGE_KEYS.THEME, themeMode);
       localStorage.setItem('sunny_tracker_owner_v1', chartOwnerName);
       localStorage.setItem('sunny_tracker_failed_patterns_v1', JSON.stringify(failedPatterns));
+      localStorage.setItem('sunny_tracker_auto_paste_v1', String(autoPasteEnabled));
+      window.SunnyNativeBridge?.setAutoEnabled?.(autoPasteEnabled);
     } catch {
       // ignore storage quota errors
     }
-  }, [entries, activeCategory, isLocked, inputText, columns, themeMode, chartOwnerName, failedPatterns]);
+  }, [entries, activeCategory, isLocked, inputText, columns, themeMode, chartOwnerName, failedPatterns, autoPasteEnabled]);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -827,12 +832,13 @@ export default function App() {
     setPendingConfirm({ isError: false, results, failed, sourceLabel, rawText, fromBridge });
   };
 
-  // Listen for clipboard text forwarded by HeliBoard Android bridge (both push + pull)
+  // Listen for clipboard text from native Android auto-clipboard check (when Auto ON)
   useEffect(() => {
     const handleIncomingText = (text) => {
+      if (!autoPasteEnabled) return 'LOCKED';
       if (typeof text === 'string' && text.trim()) {
         setInputText(text);
-        openConfirmForText(text, 'कीबोर्ड ✓ ', true);
+        openConfirmForText(text, 'ऑटो ✓ ', true);
         return 'OK';
       }
       return 'EMPTY';
@@ -841,28 +847,25 @@ export default function App() {
     window.addEventListener('sunny_clip_received', handleBridgeClip);
     window.receiveSunnyClip = handleIncomingText;
 
-    const pullPendingFromNative = () => {
+    const checkNativeClipboard = () => {
       try {
-        if (window.SunnyNativeBridge?.consumePendingClip) {
-          const pending = window.SunnyNativeBridge.consumePendingClip();
-          if (pending && pending.trim()) {
-            handleIncomingText(pending);
-          }
+        if (autoPasteEnabled && window.SunnyNativeBridge?.readClipboardIfNew) {
+          window.SunnyNativeBridge.readClipboardIfNew();
         }
       } catch {
         // ignore
       }
     };
-    pullPendingFromNative();
-    window.addEventListener('focus', pullPendingFromNative);
+    checkNativeClipboard();
+    window.addEventListener('focus', checkNativeClipboard);
     const onVis = () => {
-      if (document.visibilityState === 'visible') pullPendingFromNative();
+      if (document.visibilityState === 'visible') checkNativeClipboard();
     };
     document.addEventListener('visibilitychange', onVis);
 
     return () => {
       window.removeEventListener('sunny_clip_received', handleBridgeClip);
-      window.removeEventListener('focus', pullPendingFromNative);
+      window.removeEventListener('focus', checkNativeClipboard);
       document.removeEventListener('visibilitychange', onVis);
       delete window.receiveSunnyClip;
     };
@@ -1384,7 +1387,36 @@ export default function App() {
               </span>
             </p>
 
-            <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+            <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
+              <button
+                onClick={() => {
+                  const next = !autoPasteEnabled;
+                  setAutoPasteEnabled(next);
+                  showToast(
+                    next
+                      ? '🔓 ऑटो-कॉपी ON — कॉपी किया नंबर अपने-आप कन्फ़र्म दिखेगा'
+                      : '🔒 ऑटो-कॉपी OFF — अब कॉपी डेटा अपने-आप नहीं आएगा'
+                  );
+                }}
+                title="ऑटो-कॉपी चालू/बंद करें"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  background: autoPasteEnabled ? 'rgba(16, 185, 129, 0.16)' : 'rgba(225, 29, 72, 0.16)',
+                  color: autoPasteEnabled ? '#6ee7b7' : '#fb7185',
+                  border: `1px solid ${autoPasteEnabled ? '#10b981' : '#f43f5e'}`,
+                  borderRadius: '8px',
+                  padding: '5px 7px',
+                  fontSize: '10px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {autoPasteEnabled ? <Unlock size={11} /> : <Lock size={11} />}
+                {autoPasteEnabled ? 'Auto ON' : 'Auto OFF'}
+              </button>
               <button
                 onClick={() => setToolsView('entry_history')}
                 title="सभी एंट्री की हिस्ट्री देखें व गलत एंट्री हटाएं"
@@ -2246,7 +2278,7 @@ export default function App() {
                       <Sparkles size={18} color="#10b981" />
                       <div>
                         <div style={{ fontSize: '13px', fontWeight: 700, color: '#6ee7b7' }}>
-                          🎹 कीबोर्ड ब्रिज डेमो देखें (Live Demo)
+                          📱 ऑटो-पेस्ट डेमो देखें (Live Demo)
                         </div>
                         <div style={{ fontSize: '11px', color: t.textSecondary }}>
                           देखें WhatsApp पर Copy करते ही कन्फ़र्मेशन लिस्ट कैसे खुलेगी
