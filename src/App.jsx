@@ -753,6 +753,7 @@ export default function App() {
       if (showNotice) {
         showToast(updated ? '🔄 दूसरे फोन का नया डेटा सिंक हो गया ✓' : '✓ सभी फोन पहले से अप-टू-डेट हैं');
       }
+      if (syncEnabled) setSyncStatus('live');
     } catch {
       if (showNotice) showToast('इंटरनेट कनेक्शन जाँचें');
     }
@@ -1006,6 +1007,7 @@ export default function App() {
       return;
     }
     const { results, failed } = analyzeWhatsAppText(rawText);
+    setInputText('');
     if (results.length === 0) {
       const savedCount = recordFailedPatterns(failed, rawText);
       if (fromBridge) {
@@ -1034,7 +1036,6 @@ export default function App() {
     const handleIncomingText = (text) => {
       if (!autoPasteEnabled) return 'LOCKED';
       if (typeof text === 'string' && text.trim()) {
-        setInputText(text);
         openConfirmForText(text, 'ऑटो ✓ ', true);
         return 'OK';
       }
@@ -1112,6 +1113,7 @@ export default function App() {
   const handleCancelPendingAdd = () => {
     const wasBridge = pendingConfirm?.fromBridge;
     setPendingConfirm(null);
+    setInputText('');
     if (wasBridge && window.SunnyNativeBridge?.returnToPreviousApp) {
       window.SunnyNativeBridge.returnToPreviousApp();
     }
@@ -1575,25 +1577,31 @@ export default function App() {
                 onClick={() => setToolsView('cloud_sync')}
                 title="4-फोन फ्री लाइव सिंक सेटिंग"
                 style={{
-                  background: syncEnabled ? 'rgba(16, 185, 129, 0.16)' : t.inputBg,
+                  background: syncEnabled
+                    ? syncStatus === 'live'
+                      ? '#059669'
+                      : 'rgba(245, 158, 11, 0.2)'
+                    : t.inputBg,
                   color: syncEnabled
                     ? syncStatus === 'live'
-                      ? '#6ee7b7'
+                      ? '#ffffff'
                       : '#fbbf24'
                     : t.textSecondary,
-                  border: `1px solid ${syncEnabled ? '#10b981' : t.cardBorder}`,
+                  border: `1.5px solid ${
+                    syncEnabled ? (syncStatus === 'live' ? '#34d399' : '#f59e0b') : t.cardBorder
+                  }`,
                   borderRadius: '8px',
-                  padding: '5px 7px',
+                  padding: '5px 8px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '3px',
+                  gap: '4px',
                   fontSize: '10px',
-                  fontWeight: 700,
+                  fontWeight: 800,
                 }}
               >
-                <Wifi size={12} />
-                {syncEnabled ? (syncStatus === 'live' ? 'Live' : 'Sync') : 'Sync'}
+                <Wifi size={13} color={syncEnabled && syncStatus === 'live' ? '#ffffff' : undefined} />
+                {syncEnabled ? (syncStatus === 'live' ? 'Live' : 'Sync...') : 'Sync'}
               </button>
               <button
                 onClick={() => setThemeMode((m) => (m === 'dark' ? 'light' : 'dark'))}
