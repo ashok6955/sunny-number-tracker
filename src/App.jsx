@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ClipboardPaste,
   Plus,
@@ -21,6 +21,8 @@ import {
   Download,
   Image as ImageIcon,
   AlertTriangle,
+  Wifi,
+  RefreshCw,
 } from 'lucide-react';
 
 const CATEGORIES = ['DB', 'SG', 'FD', 'GB', 'GL', 'DS'];
@@ -578,6 +580,41 @@ export default function App() {
   const [autoPasteEnabled, setAutoPasteEnabled] = useState(
     () => localStorage.getItem('sunny_tracker_auto_paste_v1') !== 'false'
   );
+  const [syncRoomId, setSyncRoomId] = useState(
+    () => localStorage.getItem('sunny_tracker_sync_room_v1') || ''
+  );
+  const [syncEnabled, setSyncEnabled] = useState(
+    () => localStorage.getItem('sunny_tracker_sync_enabled_v1') === 'true'
+  );
+  const [syncStatus, setSyncStatus] = useState('off'); // 'off' | 'connecting' | 'live' | 'error'
+  const [lastSyncTime, setLastSyncTime] = useState('');
+  const [deviceId] = useState(() => {
+    let id = localStorage.getItem('sunny_tracker_device_id_v1');
+    if (!id) {
+      id = `dev-${Math.random().toString(36).slice(2, 10)}`;
+      localStorage.setItem('sunny_tracker_device_id_v1', id);
+    }
+    return id;
+  });
+  const deletedIdsRef = useRef((() => {
+    try {
+      const raw = localStorage.getItem('sunny_tracker_deleted_ids_v1');
+      return new Set(raw ? JSON.parse(raw) : []);
+    } catch {
+      return new Set();
+    }
+  })());
+  const categoryClearAtRef = useRef((() => {
+    try {
+      const raw = localStorage.getItem('sunny_tracker_cat_clear_at_v1');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  })());
+  const skipNextPushRef = useRef(false);
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
   const [toast, setToast] = useState('');
   const [copied, setCopied] = useState(false);
 
@@ -597,10 +634,169 @@ export default function App() {
       window.SunnyNativeBridge?.saveFailedPatternsJson?.(JSON.stringify(failedPatterns));
       localStorage.setItem('sunny_tracker_auto_paste_v1', String(autoPasteEnabled));
       window.SunnyNativeBridge?.setAutoEnabled?.(autoPasteEnabled);
+      localStorage.setItem('sunny_tracker_sync_room_v1', syncRoomId);
+      localStorage.setItem('sunny_tracker_sync_enabled_v1', String(syncEnabled));
     } catch {
       // ignore storage quota errors
     }
-  }, [entries, activeCategory, isLocked, inputText, columns, themeMode, chartOwnerName, failedPatterns, autoPasteEnabled]);
+  }, [entries, activeCategory, isLocked, inputText, columns, themeMode, chartOwnerName, failedPatterns, autoPasteEnabled, syncRoomId, syncEnabled]);
+
+  // Free 4-Phone Live Sync via ntfy.sh (₹0, no account, real-time SSE + poll)
+  const cleanSyncTopic = useMemo(() => {
+    const cleaned = syncRoomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    return cleaned ? `sunny_jnt_${cleaned}` : '';
+  }, [syncRoomId]);
+
+  const persistSyncMeta = () => {
+    try {
+      localStorage.setItem('sunny_tracker_deleted_ids_v1', JSON.stringify([...deletedIdsRef.current].slice(-300)));
+      localStorage.setItem('sunny_tracker_cat_clear_at_v1', JSON.stringify(categoryClearAtRef.current));
+    } catch {
+      // ignore
+    }
+  };
+
+  const mergeRemoteSyncPayload = (payload) => {
+    if (!payload || payload.type !== 'SUNNY_SYNC_V1' || payload.senderId === deviceId) return false;
+    let changed = false;
+
+    if (Array.isArray(payload.deletedIds)) {
+      for (const id of payload.deletedIds) {
+        if (!deletedIdsRef.current.has(id)) {
+          deletedIdsRef.current.add(id);
+          changed = true;
+        }
+      }
+    }
+
+    if (payload.categoryClearAt && typeof payload.categoryClearAt === 'object') {
+      for (const cat of CATEGORIES) {
+        const remoteTs = Number(payload.categoryClearAt[cat] || 0);
+        const localTs = Number(categoryClearAtRef.current[cat] || 0);
+        if (remoteTs > localTs) {
+          categoryClearAtRef.current[cat] = remoteTs;
+          changed = true;
+        }
+      }
+    }
+
+    const byId = new Map();
+    for (const item of entriesRef.current) {
+      byId.set(item.id, item);
+    }
+    const prevCount = byId.size;
+    if (Array.isArray(payload.entries)) {
+      for (const item of payload.entries) {
+        if (item && item.id && !byId.has(item.id)) {
+          byId.set(item.id, item);
+        }
+      }
+    }
+
+    const filtered = [...byId.values()].filter((item) => {
+      if (deletedIdsRef.current.has(item.id)) return false;
+      const clearTs = Number(categoryClearAtRef.current[item.category] || 0);
+      if (clearTs > 0 && Number(item.createdAt || 0) <= clearTs) return false;
+      return true;
+    });
+
+    if (changed || byId.size !== prevCount || filtered.length !== entriesRef.current.length) {
+      filtered.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+      skipNextPushRef.current = true;
+      setEntries(filtered);
+      persistSyncMeta();
+      setLastSyncTime(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }));
+      return true;
+    }
+    return false;
+  };
+
+  const pushSyncSnapshot = async (customEntries) => {
+    if (!syncEnabled || !cleanSyncTopic) return;
+    try {
+      const body = JSON.stringify({
+        type: 'SUNNY_SYNC_V1',
+        senderId: deviceId,
+        sentAt: Date.now(),
+        entries: customEntries || entriesRef.current,
+        deletedIds: [...deletedIdsRef.current].slice(-200),
+        categoryClearAt: categoryClearAtRef.current,
+      });
+      await fetch(`https://ntfy.sh/${cleanSyncTopic}`, {
+        method: 'POST',
+        body,
+      });
+      setLastSyncTime(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }));
+    } catch {
+      // ignore offline push errors
+    }
+  };
+
+  const pullSyncHistory = async (showNotice = false) => {
+    if (!cleanSyncTopic) return;
+    try {
+      const res = await fetch(`https://ntfy.sh/${cleanSyncTopic}/json?poll=1&since=24h`);
+      const text = await res.text();
+      let updated = false;
+      for (const line of text.split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const evt = JSON.parse(line);
+          if (evt && evt.message) {
+            const payload = JSON.parse(evt.message);
+            if (mergeRemoteSyncPayload(payload)) updated = true;
+          }
+        } catch {
+          // ignore non-sync lines
+        }
+      }
+      if (showNotice) {
+        showToast(updated ? '🔄 दूसरे फोन का नया डेटा सिंक हो गया ✓' : '✓ सभी फोन पहले से अप-टू-डेट हैं');
+      }
+    } catch {
+      if (showNotice) showToast('इंटरनेट कनेक्शन जाँचें');
+    }
+  };
+
+  // Push local entry changes automatically when sync is ON
+  useEffect(() => {
+    if (!syncEnabled || !cleanSyncTopic) return;
+    if (skipNextPushRef.current) {
+      skipNextPushRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      pushSyncSnapshot(entries);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [entries, syncEnabled, cleanSyncTopic]);
+
+  // Real-time SSE listener for instant 4-phone sync
+  useEffect(() => {
+    if (!syncEnabled || !cleanSyncTopic) {
+      setSyncStatus('off');
+      return;
+    }
+    setSyncStatus('connecting');
+    pullSyncHistory(false);
+    const es = new EventSource(`https://ntfy.sh/${cleanSyncTopic}/sse`);
+    es.onopen = () => setSyncStatus('live');
+    es.onerror = () => setSyncStatus('error');
+    es.onmessage = (event) => {
+      try {
+        const wrapper = JSON.parse(event.data);
+        if (wrapper && wrapper.message) {
+          const payload = JSON.parse(wrapper.message);
+          if (mergeRemoteSyncPayload(payload)) {
+            showToast('🟢 दूसरे फोन से नया डेटा सिंक हुआ');
+          }
+        }
+      } catch {
+        // ignore keepalive/non-json events
+      }
+    };
+    return () => es.close();
+  }, [syncEnabled, cleanSyncTopic]);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -985,6 +1181,8 @@ export default function App() {
   };
 
   const handleDeleteEntry = (id) => {
+    deletedIdsRef.current.add(id);
+    persistSyncMeta();
     setEntries((prev) => prev.filter((item) => item.id !== id));
     showToast('एंट्री हटाई गई');
   };
@@ -999,6 +1197,8 @@ export default function App() {
     }
     const targetIndex = entries.length - 1 - idx;
     const removed = entries[targetIndex];
+    deletedIdsRef.current.add(removed.id);
+    persistSyncMeta();
     setEntries((prev) => prev.filter((_, i) => i !== targetIndex));
     showToast(`Undo: नंबर ${removed.number} (₹${removed.amount})`);
   };
@@ -1013,6 +1213,8 @@ export default function App() {
   };
 
   const confirmClearCategory = () => {
+    categoryClearAtRef.current[activeCategory] = Date.now();
+    persistSyncMeta();
     setEntries((prev) => prev.filter((e) => e.category !== activeCategory));
     setShowClearConfirm(false);
     setSelectedBox(null);
@@ -1369,6 +1571,30 @@ export default function App() {
             </div>
 
             <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
+              <button
+                onClick={() => setToolsView('cloud_sync')}
+                title="4-फोन फ्री लाइव सिंक सेटिंग"
+                style={{
+                  background: syncEnabled ? 'rgba(16, 185, 129, 0.16)' : t.inputBg,
+                  color: syncEnabled
+                    ? syncStatus === 'live'
+                      ? '#6ee7b7'
+                      : '#fbbf24'
+                    : t.textSecondary,
+                  border: `1px solid ${syncEnabled ? '#10b981' : t.cardBorder}`,
+                  borderRadius: '8px',
+                  padding: '5px 7px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  fontSize: '10px',
+                  fontWeight: 700,
+                }}
+              >
+                <Wifi size={12} />
+                {syncEnabled ? (syncStatus === 'live' ? 'Live' : 'Sync') : 'Sync'}
+              </button>
               <button
                 onClick={() => setThemeMode((m) => (m === 'dark' ? 'light' : 'dark'))}
                 title="थीम बदलें"
@@ -2216,6 +2442,45 @@ export default function App() {
                     </button>
 
                     <button
+                      onClick={() => setToolsView('cloud_sync')}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        background: t.inputBg,
+                        border: `1.5px solid ${syncEnabled ? '#10b981' : '#38bdf8'}`,
+                        borderRadius: '12px',
+                        padding: '12px 14px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <Wifi size={18} color={syncEnabled ? '#10b981' : '#38bdf8'} />
+                        <div>
+                          <div style={{ fontSize: '13px', fontWeight: 700, color: syncEnabled ? '#6ee7b7' : '#38bdf8' }}>
+                            4-फोन फ्री लाइव सिंक (₹0 खर्च)
+                          </div>
+                          <div style={{ fontSize: '11px', color: t.textSecondary }}>
+                            एक फोन में जोड़ें और चारों फोनों में तुरंत देखें
+                          </div>
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          background: syncEnabled ? '#059669' : t.cardBg,
+                          color: syncEnabled ? '#ffffff' : t.textSecondary,
+                          fontWeight: 800,
+                          fontSize: '10px',
+                          padding: '3px 8px',
+                          borderRadius: '999px',
+                        }}
+                      >
+                        {syncEnabled ? 'ON' : 'OFF'}
+                      </span>
+                    </button>
+
+                    <button
                       onClick={() => setToolsView('entry_history')}
                       style={{
                         display: 'flex',
@@ -2865,6 +3130,175 @@ export default function App() {
                       <Download size={15} />
                       डाउनलोड PNG
                     </button>
+                  </div>
+                </>
+              ) : toolsView === 'cloud_sync' ? (
+                <>
+                  {/* Free 4-Phone Live Sync Settings */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        onClick={() => setToolsView('menu')}
+                        title="टूल्स पर वापस जाएं"
+                        style={{
+                          background: t.inputBg,
+                          border: `1px solid ${t.cardBorder}`,
+                          color: t.textPrimary,
+                          borderRadius: '8px',
+                          padding: '5px 7px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <ArrowLeft size={15} />
+                      </button>
+                      <div>
+                        <h2 style={{ fontSize: '15px', fontWeight: 800, color: '#6ee7b7' }}>
+                          📡 4-फोन फ्री लाइव सिंक (₹0)
+                        </h2>
+                        <p style={{ fontSize: '11px', color: t.textSecondary }}>
+                          {syncEnabled
+                            ? syncStatus === 'live'
+                              ? `🟢 लाइव जुड़ा है${lastSyncTime ? ` • अंतिम सिंक: ${lastSyncTime}` : ''}`
+                              : '🟡 कनेक्ट हो रहा है...'
+                            : '⚪ अभी बंद है'}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setToolsView(null)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: t.textSecondary,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
+
+                  <div
+                    style={{
+                      background: t.inputBg,
+                      border: `1px solid ${t.cardBorder}`,
+                      borderRadius: '12px',
+                      padding: '12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px',
+                    }}
+                  >
+                    <div style={{ fontSize: '12px', color: t.textSecondary, lineHeight: '1.45' }}>
+                      अपने सभी फोनों (4 या ज़्यादा) में एक ही <strong>गुप्त कोड (Sync Code)</strong> डालकर ON करें। किसी भी फोन पर नंबर जुड़ते ही चारों फोनों में तुरंत अपडेट हो जाएगा — बिल्कुल मुफ़्त!
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        value={syncRoomId}
+                        onChange={(e) => setSyncRoomId(e.target.value)}
+                        placeholder="गुप्त कोड डालें (जैसे sunny-9988)"
+                        style={{
+                          flex: 1,
+                          background: t.cardBg,
+                          border: `1px solid ${t.cardBorder}`,
+                          borderRadius: '8px',
+                          padding: '9px 10px',
+                          color: t.textPrimary,
+                          fontSize: '13px',
+                          fontWeight: 700,
+                          outline: 'none',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const code = `sunny-${Math.floor(1000 + Math.random() * 9000)}`;
+                          setSyncRoomId(code);
+                          showToast(`नया कोड बना: ${code}`);
+                        }}
+                        style={{
+                          background: t.cardBg,
+                          border: `1px solid ${t.cardBorder}`,
+                          color: t.accentText,
+                          borderRadius: '8px',
+                          padding: '9px 10px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        🎲 नया कोड
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!syncRoomId.trim()) {
+                            showToast('पहले कोई गुप्त कोड लिखें या 🎲 नया कोड बनाएं');
+                            return;
+                          }
+                          const next = !syncEnabled;
+                          setSyncEnabled(next);
+                          if (next) {
+                            setTimeout(() => pushSyncSnapshot(entries), 150);
+                          }
+                          showToast(next ? '🟢 लाइव सिंक चालू हो गया' : '⚪ लाइव सिंक बंद हो गया');
+                        }}
+                        style={{
+                          flex: 1.5,
+                          background: syncEnabled ? '#e11d48' : '#059669',
+                          border: 'none',
+                          color: '#ffffff',
+                          borderRadius: '10px',
+                          padding: '11px',
+                          fontSize: '13px',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {syncEnabled ? 'सिंक बंद करें (OFF)' : '✅ लाइव सिंक चालू करें'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!cleanSyncTopic) {
+                            showToast('पहले गुप्त कोड डालें');
+                            return;
+                          }
+                          pullSyncHistory(true);
+                        }}
+                        style={{
+                          flex: 1,
+                          background: '#0284c7',
+                          border: 'none',
+                          color: '#ffffff',
+                          borderRadius: '10px',
+                          padding: '11px',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '5px',
+                        }}
+                      >
+                        <RefreshCw size={14} />
+                        अभी सिंक करें
+                      </button>
+                    </div>
                   </div>
                 </>
               ) : toolsView === 'failed_patterns' ? (
