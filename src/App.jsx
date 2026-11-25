@@ -583,10 +583,10 @@ export default function App() {
     () => localStorage.getItem('sunny_tracker_auto_paste_v1') !== 'false'
   );
   const [syncRoomId, setSyncRoomId] = useState(
-    () => localStorage.getItem('sunny_tracker_sync_room_v1') || DEFAULT_SYNC_ROOM
+    () => localStorage.getItem('sunny_tracker_sync_room_v2') || DEFAULT_SYNC_ROOM
   );
   const [syncEnabled, setSyncEnabled] = useState(
-    () => localStorage.getItem('sunny_tracker_sync_enabled_v1') !== 'false'
+    () => localStorage.getItem('sunny_tracker_sync_v2_enabled') !== 'false'
   );
   const [syncStatus, setSyncStatus] = useState('off'); // 'off' | 'connecting' | 'live' | 'error'
   const [connectedCount, setConnectedCount] = useState(1);
@@ -649,8 +649,8 @@ export default function App() {
       window.SunnyNativeBridge?.saveFailedPatternsJson?.(backupPayload);
       localStorage.setItem('sunny_tracker_auto_paste_v1', String(autoPasteEnabled));
       window.SunnyNativeBridge?.setAutoEnabled?.(autoPasteEnabled);
-      localStorage.setItem('sunny_tracker_sync_room_v1', syncRoomId);
-      localStorage.setItem('sunny_tracker_sync_enabled_v1', String(syncEnabled));
+      localStorage.setItem('sunny_tracker_sync_room_v2', syncRoomId);
+      localStorage.setItem('sunny_tracker_sync_v2_enabled', String(syncEnabled));
     } catch {
       // ignore storage quota errors
     }

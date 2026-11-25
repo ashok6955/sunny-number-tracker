@@ -78,20 +78,57 @@ public class MainActivity extends BridgeActivity {
 
         @JavascriptInterface
         public void saveFailedPatternsJson(String json) {
+            if (json == null) return;
             try {
-                byte[] data = (json == null ? "{}" : json).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                // Only overwrite non-empty failedPatterns backup so uninstall/accidental clear never wipes history
+                org.json.JSONObject obj = new org.json.JSONObject(json);
+                org.json.JSONArray arr = obj.optJSONArray("failedPatterns");
+                if (arr == null || arr.length() == 0) return;
+
+                byte[] data = json.getBytes(java.nio.charset.StandardCharsets.UTF_8);
                 java.io.File outFile = new java.io.File(getFilesDir(), "sunny_failed_patterns.json");
                 java.io.FileOutputStream fos = new java.io.FileOutputStream(outFile, false);
                 fos.write(data);
                 fos.close();
 
-                java.io.File extDir = getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS);
-                if (extDir != null) {
-                    if (!extDir.exists()) extDir.mkdirs();
-                    java.io.File extFile = new java.io.File(extDir, "sunny_failed_backup.json");
-                    java.io.FileOutputStream efos = new java.io.FileOutputStream(extFile, false);
-                    efos.write(data);
-                    efos.close();
+                // Uninstall-proof public backup in Documents/SunnyTrackerBackup/sunny_failed_backup.json
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    android.content.ContentResolver resolver = getContentResolver();
+                    String relPath = android.os.Environment.DIRECTORY_DOCUMENTS + "/SunnyTrackerBackup";
+                    android.net.Uri collection = android.provider.MediaStore.Files.getContentUri("external");
+                    String selection = android.provider.MediaStore.MediaColumns.DISPLAY_NAME + "=? AND " +
+                            android.provider.MediaStore.MediaColumns.RELATIVE_PATH + "=?";
+                    String[] args = new String[]{"sunny_failed_backup.json", relPath + "/"};
+                    android.net.Uri targetUri = null;
+                    try (android.database.Cursor c = resolver.query(collection,
+                            new String[]{android.provider.MediaStore.MediaColumns._ID}, selection, args, null)) {
+                        if (c != null && c.moveToFirst()) {
+                            long id = c.getLong(0);
+                            targetUri = android.content.ContentUris.withAppendedId(collection, id);
+                        }
+                    }
+                    if (targetUri == null) {
+                        android.content.ContentValues cv = new android.content.ContentValues();
+                        cv.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, "sunny_failed_backup.json");
+                        cv.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/json");
+                        cv.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, relPath);
+                        targetUri = resolver.insert(collection, cv);
+                    }
+                    if (targetUri != null) {
+                        try (java.io.OutputStream os = resolver.openOutputStream(targetUri, "wt")) {
+                            if (os != null) os.write(data);
+                        }
+                    }
+                } else {
+                    java.io.File pubDir = new java.io.File(
+                            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS),
+                            "SunnyTrackerBackup"
+                    );
+                    if (!pubDir.exists()) pubDir.mkdirs();
+                    java.io.File pubFile = new java.io.File(pubDir, "sunny_failed_backup.json");
+                    try (java.io.FileOutputStream pfos = new java.io.FileOutputStream(pubFile, false)) {
+                        pfos.write(data);
+                    }
                 }
             } catch (Exception ignored) {}
         }
