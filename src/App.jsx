@@ -528,6 +528,7 @@ export default function App() {
 
   const [selectedBox, setSelectedBox] = useState(null);
   const [expandedJodi, setExpandedJodi] = useState(null);
+  const [pendingConfirm, setPendingConfirm] = useState(null); // { results, failed, sourceLabel, rawText }
   const [quickBoxAmount, setQuickBoxAmount] = useState('');
   const [toolsView, setToolsView] = useState(null); // null | 'menu' | 'moti_jodi' | 'share_image' | 'failed_patterns'
   const [failedPatterns, setFailedPatterns] = useState(() => {
@@ -767,27 +768,61 @@ export default function App() {
     }
   };
 
-  const processInputSubmission = (sourceLabel = '') => {
-    const rawText = inputText;
-    if (!rawText.trim()) {
+  const openConfirmForText = (rawText, sourceLabel = '') => {
+    if (!rawText || !rawText.trim()) {
       showToast('पहले WhatsApp टेक्स्ट पेस्ट करें या लिखें');
       return;
     }
     const { results, failed } = analyzeWhatsAppText(rawText);
-    const committed = commitParsedEntries(results, sourceLabel);
-    if (!committed) {
+    if (results.length === 0) {
       const savedCount = recordFailedPatterns(failed, rawText);
       if (savedCount > 0) {
         showToast('पैटर्न एक्सेप्ट नहीं हुआ — फेल हिस्ट्री में सेव हो गया (Tools देखें)');
       } else {
         showToast('सही फॉर्मेट लिखें: जैसे 23 100 या 23=50');
       }
-    } else if (failed.length > 0) {
+      return;
+    }
+    setPendingConfirm({ results, failed, sourceLabel, rawText });
+  };
+
+  // Listen for clipboard text forwarded by HeliBoard Android bridge
+  useEffect(() => {
+    const handleBridgeClip = (ev) => {
+      const text = ev?.detail;
+      if (typeof text === 'string' && text.trim()) {
+        setInputText(text);
+        openConfirmForText(text, 'कीबोर्ड ✓ ');
+      }
+    };
+    window.addEventListener('sunny_clip_received', handleBridgeClip);
+    window.receiveSunnyClip = (text) => {
+      if (typeof text === 'string' && text.trim()) {
+        setInputText(text);
+        openConfirmForText(text, 'कीबोर्ड ✓ ');
+      }
+    };
+    return () => {
+      window.removeEventListener('sunny_clip_received', handleBridgeClip);
+      delete window.receiveSunnyClip;
+    };
+  });
+
+  const handleConfirmPendingAdd = () => {
+    if (!pendingConfirm) return;
+    const { results, failed, sourceLabel } = pendingConfirm;
+    commitParsedEntries(results, sourceLabel);
+    if (failed.length > 0) {
       const savedCount = recordFailedPatterns(failed, '');
       if (savedCount > 0) {
         showToast(`${sourceLabel}${results.length} नंबर जुड़े (${savedCount} लाइन फेल हिस्ट्री में सेव)`);
       }
     }
+    setPendingConfirm(null);
+  };
+
+  const processInputSubmission = (sourceLabel = '') => {
+    openConfirmForText(inputText, sourceLabel);
   };
 
   const handleAddFromInput = (e) => {
@@ -3122,6 +3157,148 @@ export default function App() {
                     </div>
                   ))
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Confirmation Preview Modal before Adding */}
+        {pendingConfirm && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'rgba(2, 6, 23, 0.72)',
+              display: 'flex',
+              alignItems: 'flex-end',
+              justifyContent: 'center',
+              zIndex: 55,
+            }}
+            onClick={() => setPendingConfirm(null)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                background: t.cardBg,
+                borderTop: `2px solid ${t.accent}`,
+                borderRadius: '20px 20px 0 0',
+                padding: '16px',
+                maxHeight: '78vh',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h2 style={{ fontSize: '15px', fontWeight: 800, color: t.textPrimary }}>
+                    ✅ {activeCategory} में जोड़ने की पुष्टि करें
+                  </h2>
+                  <p style={{ fontSize: '11px', color: t.textSecondary }}>
+                    कुल {pendingConfirm.results.length} नंबर • टोटल: ₹
+                    {pendingConfirm.results
+                      .reduce((s, x) => s + x.amount, 0)
+                      .toLocaleString('en-IN')}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setPendingConfirm(null)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: t.textSecondary,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {pendingConfirm.failed.length > 0 && (
+                <div
+                  style={{
+                    fontSize: '11px',
+                    color: '#fb7185',
+                    background: 'rgba(225, 29, 72, 0.12)',
+                    border: '1px solid rgba(244, 63, 94, 0.4)',
+                    borderRadius: '8px',
+                    padding: '6px 9px',
+                  }}
+                >
+                  ⚠️ {pendingConfirm.failed.length} लाइन समझ नहीं आई (फेल हिस्ट्री में सेव होगी)
+                </div>
+              )}
+
+              <div
+                className="grid-scroll"
+                style={{
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '6px',
+                  maxHeight: '240px',
+                  padding: '4px 0',
+                }}
+              >
+                {pendingConfirm.results.map((item, idx) => (
+                  <span
+                    key={`${item.number}-${idx}`}
+                    style={{
+                      background: t.inputBg,
+                      border: `1px solid ${t.cardBorder}`,
+                      borderRadius: '8px',
+                      padding: '5px 9px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      color: t.textPrimary,
+                    }}
+                  >
+                    {String(item.number).padStart(2, '0')} ={' '}
+                    <span style={{ color: t.accentText }}>₹{item.amount}</span>
+                  </span>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                <button
+                  type="button"
+                  onClick={() => setPendingConfirm(null)}
+                  style={{
+                    flex: 1,
+                    background: t.inputBg,
+                    border: `1px solid ${t.cardBorder}`,
+                    color: t.textPrimary,
+                    borderRadius: '10px',
+                    padding: '11px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  रद्द करें
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmPendingAdd}
+                  style={{
+                    flex: 2,
+                    background: t.accent,
+                    border: 'none',
+                    color: '#ffffff',
+                    borderRadius: '10px',
+                    padding: '11px',
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  कन्फ़र्म करें (₹
+                  {pendingConfirm.results
+                    .reduce((s, x) => s + x.amount, 0)
+                    .toLocaleString('en-IN')}
+                  )
+                </button>
               </div>
             </div>
           </div>
