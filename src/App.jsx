@@ -806,6 +806,17 @@ export default function App() {
     const { results, failed } = analyzeWhatsAppText(rawText);
     if (results.length === 0) {
       const savedCount = recordFailedPatterns(failed, rawText);
+      if (fromBridge) {
+        setPendingConfirm({
+          isError: true,
+          results: [],
+          failed,
+          sourceLabel,
+          rawText,
+          fromBridge: true,
+        });
+        return;
+      }
       if (savedCount > 0) {
         showToast('पैटर्न एक्सेप्ट नहीं हुआ — फेल हिस्ट्री में सेव हो गया (Tools देखें)');
       } else {
@@ -813,7 +824,7 @@ export default function App() {
       }
       return;
     }
-    setPendingConfirm({ results, failed, sourceLabel, rawText, fromBridge });
+    setPendingConfirm({ isError: false, results, failed, sourceLabel, rawText, fromBridge });
   };
 
   // Listen for clipboard text forwarded by HeliBoard Android bridge (both push + pull)
@@ -3258,6 +3269,93 @@ export default function App() {
 
         {/* Focused Full-Screen Confirmation Preview Modal before Adding */}
         {pendingConfirm && (() => {
+          if (pendingConfirm.isError) {
+            return (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'rgba(2, 6, 23, 0.94)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '14px',
+                  zIndex: 60,
+                }}
+                onClick={handleCancelPendingAdd}
+              >
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    width: '100%',
+                    background: t.cardBg,
+                    border: '2px solid #f43f5e',
+                    borderRadius: '20px',
+                    padding: '16px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    boxShadow: '0 20px 50px rgba(0, 0, 0, 0.7)',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h2 style={{ fontSize: '15px', fontWeight: 800, color: '#fb7185' }}>
+                      ❌ मुझे यह पैटर्न समझ नहीं आया
+                    </h2>
+                    <button
+                      onClick={handleCancelPendingAdd}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: t.textSecondary,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
+                  <p style={{ fontSize: '12px', color: t.textSecondary }}>
+                    यह मैसेज फेल पैटर्न हिस्ट्री में सेव कर दिया गया है (आप इसे टूल्स से कॉपी करके भेज सकते हैं):
+                  </p>
+                  <div
+                    style={{
+                      background: t.inputBg,
+                      border: '1px solid rgba(244, 63, 94, 0.45)',
+                      borderRadius: '10px',
+                      padding: '10px',
+                      fontSize: '12px',
+                      fontFamily: 'monospace',
+                      color: t.textPrimary,
+                      maxHeight: '150px',
+                      overflowY: 'auto',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {pendingConfirm.rawText}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCancelPendingAdd}
+                    style={{
+                      width: '100%',
+                      background: '#e11d48',
+                      border: 'none',
+                      color: '#ffffff',
+                      borderRadius: '10px',
+                      padding: '12px',
+                      fontSize: '13px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ठीक है (वापस चैट पर जाएं)
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
           const msgTotal = pendingConfirm.results.reduce((s, x) => s + x.amount, 0);
           const declaredTotal = extractDeclaredTotal(pendingConfirm.rawText);
           const currentCatTotal = categoryTotals[activeCategory] || 0;
