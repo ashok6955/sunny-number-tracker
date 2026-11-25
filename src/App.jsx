@@ -114,9 +114,9 @@ function tryParseHarufLine(line) {
   // Extract total haruf amount and divide by 10 (e.g. 400 -> ₹40 per jodi, 100 -> ₹10)
   let amt = 0;
   let digitPart = line;
-  const parenAmt = line.match(/\(\s*@?\s*(\d+(?:\.\d+)?)\s*(?:into|in|rs)?\s*\)/i);
-  const intoAmt = line.match(/(?:into|intu|ento|in|rs|r|@|=|×|x)\s*[.=*:\s]*(\d+(?:\.\d+)?)/i);
-  const slashAmt = line.match(/\/\s*(\d+(?:\.\d+)?)/);
+  const parenAmt = line.match(/\(\s*@?\s*₹?\s*(\d+(?:\.\d+)?)\s*(?:into|in|rs|₹)?\s*\)/i);
+  const intoAmt = line.match(/(?:into|intu|ento|in|rs\.?|inr|r|₹|@|=|×|x|\*)\s*[.=*:₹\s]*(\d+(?:\.\d+)?)/i);
+  const slashAmt = line.match(/\/\s*₹?\s*(\d+(?:\.\d+)?)/);
 
   if (parenAmt) {
     amt = parseFloat(parenAmt[1]);
@@ -128,7 +128,7 @@ function tryParseHarufLine(line) {
     amt = parseFloat(slashAmt[1]);
     digitPart = line.slice(0, slashAmt.index);
   } else {
-    const trailingAmt = line.match(/(\d+(?:\.\d+)?)\s*$/);
+    const trailingAmt = line.match(/(\d+(?:\.\d+)?)\s*(?:₹|rs\.?|inr|\/-|रुपये|रुपए)?\s*$/i);
     if (trailingAmt) {
       amt = parseFloat(trailingAmt[1]);
       digitPart = line.slice(0, trailingAmt.index);
