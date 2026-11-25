@@ -387,7 +387,7 @@ function analyzeWhatsAppText(raw) {
 
     // Lookahead: if line is a multi-number list (e.g. "60*48*75*21*13") followed later by an "into X" line, buffer it instead of treating the last number as amount
     let deferToBuffer = false;
-    if (!/[=**#@×]/.test(cleaned) && /^[\d\s.,/_+\-\\*]+$/.test(cleaned)) {
+    if (!/(?:=|\*\*|#|@|×)/.test(cleaned) && /^[\d\s.,/_+\-\\*]+$/.test(cleaned)) {
       const candidateNums = extractJodiList(cleaned);
       if (candidateNums.length >= 2) {
         for (let k = i + 1; k < lines.length; k++) {
