@@ -87,7 +87,9 @@ function tryParseHarufLine(line) {
     /(?:हरूफ|हरफ|बाहर|अंदर|अन्दर)/.test(line);
   const hasABToken = /(?:^|[\s.,(/])(?:AB|BA)(?:$|[\s.,)/])/i.test(line);
   const hasAttachedSide = /(?:^|[\s.,])(?:[AB][\s.,]*\d|\d[\s.,]*[AB])(?:$|[\s.,(/])/i.test(line);
-  if (!hasHarufWord && !hasABToken && !hasAttachedSide) return null;
+  // 3+ repeated identical digits (e.g. "222=100", "1111 into 400") without A/B defaults to Bahar Haruf
+  const hasRepeatedHarufDigits = /\b(\d)\1{2,}\b/.test(line);
+  if (!hasHarufWord && !hasABToken && !hasAttachedSide && !hasRepeatedHarufDigits) return null;
 
   const hasAB =
     /\b(?:ab|ba)\b/i.test(line) ||
@@ -103,8 +105,9 @@ function tryParseHarufLine(line) {
     /\b(?:bahar|bahr)\b/i.test(line) ||
     /बाहर/.test(line) ||
     /(?:^|[\s.,])b[\s.,]*\d|\d[\s.,]*b(?:$|[\s.,(/])/i.test(line);
+  // If neither Andar nor Bahar is specified, default is always Bahar (outer)
   if (!hasA && !hasB) {
-    hasA = true;
+    hasA = false;
     hasB = true;
   }
 
