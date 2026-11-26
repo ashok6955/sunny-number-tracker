@@ -270,6 +270,9 @@ public class MainActivity extends BridgeActivity {
             }
         }
         if (text != null && !text.trim().isEmpty()) {
+            if (!text.matches("(?s).*\\d.*")) {
+                return;
+            }
             storePendingClip(text);
             deliverPendingClipToWeb();
         } else if (intent.getBooleanExtra("from_copy_trigger", false)) {

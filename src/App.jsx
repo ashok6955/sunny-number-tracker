@@ -1255,7 +1255,15 @@ export default function App() {
 
   const openConfirmForText = (rawText, sourceLabel = '', fromBridge = false) => {
     if (!rawText || !rawText.trim()) {
-      showToast('पहले WhatsApp टेक्स्ट पेस्ट करें या लिखें');
+      if (!fromBridge) showToast('Paste or type WhatsApp text first');
+      return;
+    }
+    // Ignore pure word text (e.g. "Sunny") with no digits at all
+    if (!/\d/.test(rawText)) {
+      if (!fromBridge) {
+        showToast('Enter numbers with amount (e.g. 23 100 or 23=50)');
+      }
+      setInputText('');
       return;
     }
     const { results, failed } = analyzeWhatsAppText(rawText);
