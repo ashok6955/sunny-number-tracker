@@ -2153,14 +2153,11 @@ export default function App() {
               marginBottom: '9px',
             }}
           >
-            <p style={{ fontSize: '11px', color: t.textSecondary, whiteSpace: 'nowrap' }}>
+            <p style={{ fontSize: '12px', color: t.textSecondary, whiteSpace: 'nowrap' }}>
               {activeCategory} Total:{' '}
               <strong style={{ color: t.accent }}>
                 ₹{categoryTotals[activeCategory].toLocaleString('en-IN')}
-              </strong>{' '}
-              <span style={{ color: t.textMuted }}>
-                / ₹{gameTarget.toLocaleString('en-IN')}
-              </span>
+              </strong>
             </p>
 
             <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
@@ -2207,26 +2204,6 @@ export default function App() {
                 History
               </button>
             </div>
-          </div>
-
-          {/* Target Progress Bar (₹30,000 Game) */}
-          <div
-            style={{
-              height: '4px',
-              background: t.inputBg,
-              borderRadius: '999px',
-              overflow: 'hidden',
-              marginBottom: '8px',
-            }}
-          >
-            <div
-              style={{
-                width: `${Math.min(100, (categoryTotals[activeCategory] / gameTarget) * 100)}%`,
-                height: '100%',
-                background: 'linear-gradient(90deg, #10b981, #f59e0b)',
-                transition: 'width 0.25s ease',
-              }}
-            />
           </div>
 
           {/* 6 Category Tabs with Lock/Unlock */}
