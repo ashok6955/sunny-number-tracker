@@ -570,7 +570,7 @@ const THEMES = {
   light: {
     frameBg: '#efeae2',
     frameBorder: '#d1d7db',
-    headerBg: '#008069',
+    headerBg: '#ffffff',
     cardBg: '#ffffff',
     cardBorder: '#e2e8f0',
     inputBg: '#f0f2f5',
@@ -609,9 +609,7 @@ export default function App() {
     }
   });
 
-  const [inputText, setInputText] = useState(() => {
-    return localStorage.getItem(STORAGE_KEYS.DRAFT) || '';
-  });
+  const [inputText, setInputText] = useState('');
 
   const [columns, setColumns] = useState(() => {
     const saved = parseInt(localStorage.getItem(STORAGE_KEYS.COLUMNS) || '5', 10);
@@ -1944,9 +1942,9 @@ export default function App() {
                   display: 'flex',
                   alignItems: 'center',
                   gap: '4px',
-                  background: '#000000',
-                  color: '#fbbf24',
-                  border: '1px solid #f59e0b',
+                  background: t.inputBg,
+                  color: t.textPrimary,
+                  border: `1px solid ${t.cardBorder}`,
                   borderRadius: '8px',
                   padding: '5px 10px',
                   fontSize: '11px',
@@ -1955,8 +1953,8 @@ export default function App() {
                   whiteSpace: 'nowrap',
                 }}
               >
-                <Wrench size={13} />
-                टूल्स
+                <Wrench size={13} color={t.accent} />
+                मेनू
               </button>
             </div>
           </div>
@@ -2144,31 +2142,31 @@ export default function App() {
                 {
                   label: '👑 सबसे मोटा',
                   item: first,
-                  bg: '#000000',
-                  border: '#f59e0b',
-                  color: '#fbbf24',
+                  bg: t.accentSoft,
+                  border: t.accent,
+                  color: t.accentText,
                 },
                 second && {
                   label: '2nd',
                   item: second,
-                  bg: 'rgba(234, 88, 12, 0.18)',
-                  border: '#f97316',
-                  color: '#fb923c',
+                  bg: t.cardBg,
+                  border: t.cardBorder,
+                  color: t.textSecondary,
                 },
                 third && {
                   label: '3rd',
                   item: third,
-                  bg: 'rgba(2, 132, 199, 0.18)',
-                  border: '#38bdf8',
-                  color: '#38bdf8',
+                  bg: t.cardBg,
+                  border: t.cardBorder,
+                  color: t.textSecondary,
                 },
                 lowest &&
                   lowest.amount !== first.amount && {
                     label: 'सबसे कम',
                     item: lowest,
-                    bg: 'rgba(225, 29, 72, 0.16)',
-                    border: '#f43f5e',
-                    color: '#fb7185',
+                    bg: t.cardBg,
+                    border: t.cardBorder,
+                    color: t.textMuted,
                   },
               ].filter(Boolean);
 
@@ -2180,10 +2178,10 @@ export default function App() {
                     background: chip.bg,
                     border: `1px solid ${chip.border}`,
                     color: chip.color,
-                    borderRadius: '8px',
-                    padding: '4px 8px',
+                    borderRadius: '999px',
+                    padding: '4px 10px',
                     fontSize: '10px',
-                    fontWeight: 700,
+                    fontWeight: 600,
                     cursor: 'pointer',
                     whiteSpace: 'nowrap',
                     display: 'flex',
@@ -2192,7 +2190,7 @@ export default function App() {
                   }}
                 >
                   <span>{chip.label}:</span>
-                  <span style={{ color: t.textPrimary === '#0f172a' && chip.bg !== '#000000' ? '#0f172a' : '#ffffff' }}>
+                  <span style={{ color: t.textPrimary, fontWeight: 700 }}>
                     {String(chip.item.number).padStart(2, '0')} (₹{chip.item.amount.toLocaleString('en-IN')})
                   </span>
                 </button>
@@ -2225,29 +2223,14 @@ export default function App() {
             let numColor = t.textSecondary;
             let amtColor = t.textMuted;
 
-            if (tier === 'top') {
-              boxBg = '#000000';
-              boxBorder = '2px solid #f59e0b';
-              numColor = '#fbbf24';
-              amtColor = '#ffffff';
-            } else if (tier === 'second') {
-              boxBg = 'rgba(234, 88, 12, 0.2)';
-              boxBorder = '1.5px solid #f97316';
-              numColor = '#fdba74';
-              amtColor = t.textPrimary;
-            } else if (tier === 'third') {
-              boxBg = 'rgba(2, 132, 199, 0.2)';
-              boxBorder = '1.5px solid #38bdf8';
-              numColor = '#7dd3fc';
-              amtColor = t.textPrimary;
-            } else if (tier === 'lowest') {
-              boxBg = 'rgba(225, 29, 72, 0.16)';
-              boxBorder = '1.5px solid #f43f5e';
-              numColor = '#fda4af';
+            if (isHighest) {
+              boxBg = t.accentSoft;
+              boxBorder = `1.5px solid ${t.accent}`;
+              numColor = t.accentText;
               amtColor = t.textPrimary;
             } else if (hasAmt) {
               boxBg = t.accentSoft;
-              boxBorder = `1.5px solid ${t.accent}`;
+              boxBorder = `1px solid ${t.accent}`;
               numColor = t.accentText;
               amtColor = t.textPrimary;
             }
