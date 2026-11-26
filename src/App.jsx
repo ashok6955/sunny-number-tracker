@@ -1193,13 +1193,8 @@ export default function App() {
     };
   }, [boxTotals]);
 
-  // Sync active category & lock across all 4 phones automatically
-  useEffect(() => {
+  const publishCategoryState = (cat, locked) => {
     if (!syncEnabled || !cleanSyncTopic) return;
-    if (skipNextCatPushRef.current) {
-      skipNextCatPushRef.current = false;
-      return;
-    }
     if (mqttClientRef.current && mqttClientRef.current.connected) {
       const now = Date.now();
       lastCatSyncAtRef.current = now;
@@ -1208,14 +1203,14 @@ export default function App() {
         JSON.stringify({
           type: 'SUNNY_CAT_V1',
           senderId: deviceId,
-          category: activeCategory,
-          isLocked,
+          category: cat,
+          isLocked: locked,
           sentAt: now,
         }),
         { retain: true, qos: 0 }
       );
     }
-  }, [activeCategory, isLocked, syncEnabled, cleanSyncTopic]);
+  };
 
   // Keep 24/7 live notification + Heliboard MQTT stats updated with Locked Game, Highest Jodi & Total
   useEffect(() => {
@@ -1287,16 +1282,17 @@ export default function App() {
       // Tapping the active category toggles Lock / Unlock
       const nextLock = !isLocked;
       setIsLocked(nextLock);
+      publishCategoryState(activeCategory, nextLock);
       showToast(
         nextLock
-          ? `🔒 ${cat} Locked हो गया`
-          : `🔓 ${cat} अनLocked हो गया — अब दूसरी कैटेगरी चुन सकते हैं`
+          ? `🔒 ${cat} Locked`
+          : `🔓 ${cat} Unlocked — now you can switch category`
       );
       return;
     }
 
     if (isLocked) {
-      showToast(`🔒 ${activeCategory} Locked है! पहले ${activeCategory} पर टैप करके अनLocked करें`);
+      showToast(`🔒 ${activeCategory} is Locked! Tap ${activeCategory} first to unlock`);
       return;
     }
 
@@ -1304,7 +1300,8 @@ export default function App() {
     setActiveCategory(cat);
     setIsLocked(true);
     setSelectedBox(null);
-    showToast(`🔒 ${cat} सेलेक्ट और Locked हो गया`);
+    publishCategoryState(cat, true);
+    showToast(`🔒 ${cat} Selected & Locked`);
   };
 
   // Shared helper to commit parsed entries into activeCategory

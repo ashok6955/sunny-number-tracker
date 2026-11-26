@@ -170,8 +170,8 @@ public class SunnySyncService extends Service {
                     int connAck = readMqttPacketType(in);
                     if (connAck != 2) throw new Exception("CONNACK=" + connAck);
 
-                    // 2. MQTT SUBSCRIBE to topic/sync and topic/dev/+
-                    out.write(buildMqttSubscribePacket(1, new String[]{topic + "/sync", topic + "/dev/+"}));
+                    // 2. MQTT SUBSCRIBE to topic/sync, topic/dev/+, and topic/stats
+                    out.write(buildMqttSubscribePacket(1, new String[]{topic + "/sync", topic + "/dev/+", topic + "/stats"}));
                     out.flush();
 
                     updateLiveNotification("🟢 लाइव सिंक जुड़ा है (" + topic.replace("sunny_jnt_", "") + ")");
@@ -237,6 +237,21 @@ public class SunnySyncService extends Service {
             if ((b1 & 0x06) != 0) pos += 2; // QoS > 0 packet id
             if (pos <= body.length) {
                 String msg = new String(body, pos, body.length - pos, StandardCharsets.UTF_8);
+                if (msg.contains("\"summary\"")) {
+                    try {
+                        String sum = new JSONObject(msg).optString("summary", "").trim();
+                        if (!sum.isEmpty()) {
+                            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                                    .edit()
+                                    .putString("live_stats_summary", sum)
+                                    .apply();
+                            updateLiveNotification(sum);
+                            Intent kb = new Intent("com.sunny.numbertracker.LIVE_STATS");
+                            kb.putExtra("summary", sum);
+                            sendBroadcast(kb);
+                        }
+                    } catch (Exception ignored) {}
+                }
                 if (msg.contains("SUNNY_SYNC_V1")) {
                     getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                             .edit()
