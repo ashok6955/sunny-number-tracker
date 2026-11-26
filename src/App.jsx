@@ -309,7 +309,8 @@ function analyzeWhatsAppText(raw) {
         (/[₹*()+=]/.test(line) ||
           (line.replace(/\D/g, '').length >= 3 && line.trim() !== '100'))) ||
       /\d+\s*[-+]\s*\d+\s*=/.test(line) ||
-      /\b\d+\s*\+\+/.test(line)
+      /\b\d+\s*\+\+/.test(line) ||
+      /^\s*[+]{2,}\d+/.test(line)
     ) {
       pendingNumbers = [];
       pendingRawLines = [];
@@ -317,18 +318,51 @@ function analyzeWhatsAppText(raw) {
     }
 
     // Strip trailing total clauses like "टोटल 100", "Total = 200", or "To. 570"
-    // Also strip trailing game tags like "gb", "gali", "ds", "fd", "sg", "db" (even attached like "25gb")
+    // Also strip game tags (gb, gali, ds, fd, fb, sg, db) anywhere & normalize "in to" -> "into"
     line = line
       .replace(
         /(?:टोटल|कुल|grand\s*total|total|tot|ttl|sum|\bto\.)\s*[-:=*>₹.\s]*\d+(?:\.\d+)?(?:\s*(?:₹|rs\.?|inr|\/-|रुपये|रुपए))?/gi,
         ' '
       )
+      .replace(/\bin\s+to\b/gi, 'into')
       .replace(
-        /(?:^|[\s\d])(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shri\s*ganesh|db|delhi\s*baza+r|gzb|ghaziabad)\s*$/i,
-        (m) => (/^\d/.test(m) ? m[0] : ' ')
+        /\b(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shri\s*ganesh|db|delhi\s*baza+r|gzb|ghaziabad)\b/gi,
+        ' '
       )
+      .replace(
+        /(\d)(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shri\s*ganesh|db|delhi\s*baza+r|gzb|ghaziabad)\s*$/i,
+        '$1'
+      )
+      .replace(/'/g, ' ')
       .trim();
     if (!line) continue;
+
+    // Extract inline Haruf tokens when mixed on the same line with normal bracket groups (e.g. "33(400)A3(150)")
+    const inlineHarufRe = /(?:^|[\s.,)])((?:AB|BA|[AB])[\s.]*\d+(?:[\s.]*\d+)*\s*\(\s*\d+(?:\.\d+)?\s*\))/gi;
+    if (/\(\s*\d+(?:\.\d+)?\s*\)/.test(line) && inlineHarufRe.test(line)) {
+      inlineHarufRe.lastIndex = 0;
+      let strippedLine = line;
+      let hm;
+      while ((hm = inlineHarufRe.exec(line)) !== null) {
+        const hTok = hm[1].trim();
+        const hEntries = tryParseHarufLine(hTok);
+        if (hEntries && hEntries.length > 0) {
+          results.push(...hEntries);
+          const hTotal = hEntries.reduce((s, x) => s + x.amount, 0);
+          specialPreviews.push({
+            kind: 'haruf',
+            raw: hTok,
+            count: hEntries.length,
+            perAmt: hEntries[0].amount,
+            total: hTotal,
+            items: [...hEntries].sort((a, b) => a.number - b.number),
+          });
+          strippedLine = strippedLine.replace(hTok, ' ').trim();
+        }
+      }
+      line = strippedLine;
+      if (!line) continue;
+    }
 
     // Check for Joda Cut (JC) or Full Crossing (crossing / cwj / cwz)
     const crossingEntries = tryParseCrossingLine(line);
@@ -338,9 +372,13 @@ function analyzeWhatsAppText(raw) {
       if (crossingEntries.length > 0) {
         results.push(...crossingEntries);
         const cTotal = crossingEntries.reduce((s, x) => s + x.amount, 0);
+        const isJcExplicit = /\b(?:jc|j\.c|joda\s*cut|jode\s*cat|jodi\s*cut)\b/i.test(line);
+        const digitsUsed = [...new Set(crossingEntries.map((x) => String(x.number === 100 ? '00' : x.number).padStart(2, '0')).join('').split('').map(Number))];
         specialPreviews.push({
           kind: 'crossing',
           raw: originalLine,
+          isJodaCut: isJcExplicit,
+          digits: digitsUsed,
           count: crossingEntries.length,
           perAmt: crossingEntries[0].amount,
           total: cTotal,
@@ -377,12 +415,13 @@ function analyzeWhatsAppText(raw) {
     // Detect Palat modifiers on this line before cleaning
     let separatePalatAmt = null;
     let hasSamePalat = false;
+    line = line.replace(/\.{2,}$/, '').trim();
 
     const sepPalatMatch = line.match(
-      /(?:\b(?:with\s+)?(?:palat|palti|palt|plt)\b)\s*(?:into|intu|ento|in|rs|@|=|×|x)?\s*[.=*:\s]*(\d+(?:\.\d+)?)/i
+      /(?:\b|(?<=\d))(?:with\s+)?(?:palat|palti|palt|plt|ptl)\b\s*(?:into|intu|ento|in|rs|@|=|×|x)?\s*[.=*:\s]*(\d+(?:\.\d+)?)(?:\s*(?:into|intu|ento|rs))?/i
     );
     const hasPalatKeyword =
-      /\b(?:with\s+palat|palt\s*k\s*sath|palat\s*ke\s*sath|palat|palti|palt|plt|wp)\b/i.test(line);
+      /(?:\b|(?<=\d))(?:with\s+palat|palt\s*k\s*sath|palat\s*ke\s*sath|palat|palti|palt|plt|ptl|wp)\b/i.test(line);
 
     if (hasPalatKeyword) {
       if (sepPalatMatch) {
@@ -401,12 +440,12 @@ function analyzeWhatsAppText(raw) {
           continue;
         } else {
           hasSamePalat = true;
-          line = line.replace(/\b(?:with\s+)?(?:palat|palti|palt|plt)\b/gi, 'into').trim();
+          line = line.replace(/(?:\b|(?<=\d))(?:with\s+)?(?:palat|palti|palt|plt|ptl)\b/gi, 'into').trim();
         }
       } else {
         hasSamePalat = true;
         line = line
-          .replace(/\b(?:with\s+palat|palt\s*k\s*sath|palat\s*ke\s*sath|palat|palti|palt|plt|wp)\b/gi, ' ')
+          .replace(/(?:\b|(?<=\d))(?:with\s+palat|palt\s*k\s*sath|palat\s*ke\s*sath|palat|palti|palt|plt|ptl|wp)\b/gi, ' ')
           .trim();
       }
     }
@@ -427,9 +466,10 @@ function analyzeWhatsAppText(raw) {
     let cleaned = line
       .replace(/[₹]/g, ' ')
       .replace(
-        /(\d+(?:\.\d+)?)\s*(?:into|intu|ento|intoo|rs\.?|inr|rupe)\s*[/\-.,]*\s*$/i,
+        /(\d+(?:\.\d+)?)[,\s.*]*(?:into|intu|ento|intoo|rs\.?|inr|rupe)\s*[/\-.,]*\s*$/i,
         ' into $1'
       )
+      .replace(/\bF\b/gi, ' ')
       .replace(/\b(?:rs\.?|inr|rupe|rupy|ru|ki|ka|me|mai|mein|se|tak|ok|okk|ookk|clear)\b/gi, ' ')
       .replace(/\/-/g, ' ')
       .replace(/\]/g, ')')
@@ -438,6 +478,23 @@ function analyzeWhatsAppText(raw) {
       .trim();
 
     if (!cleaned) continue;
+
+    // 2a. Multiple "nums ... R ... amt" segments on one line (e.g. "F,, 95,,,R,,,50,,,F,,,81,,85,,,R,,,10")
+    if (/\bR\b/i.test(cleaned)) {
+      const rMatches = [...cleaned.matchAll(/([\d\s.,]+?)\s*\bR\b\s*[,.\s]*(\d+(?:\.\d+)?)/gi)];
+      if (rMatches.length >= 2) {
+        pendingNumbers = [];
+        pendingRawLines = [];
+        for (const rm of rMatches) {
+          const nums = extractJodiList(rm[1]);
+          const amt = parseFloat(rm[2]);
+          if (nums.length > 0 && amt > 0) {
+            pushEntries(nums, amt, separatePalatAmt ?? (hasSamePalat ? amt : 0));
+          }
+        }
+        continue;
+      }
+    }
 
     // 2b. Multiple inline "num=amt" pairs on a single line (e.g. "02=10 12=10 ... 92=10")
     // Skip chained "59=99=09=75" or "11=61=71===35" so sepMatch assigns the last amount to all numbers
@@ -456,8 +513,8 @@ function analyzeWhatsAppText(raw) {
       continue;
     }
 
-    // 3. Inline "(amount)" groups
-    const parenGroups = [...cleaned.matchAll(/([\d\s.,/_+\-\\*]+?)\(\s*@?\s*(\d+(?:\.\d+)?)\s*(?:into|intu|ento|in|rs)?\s*\)/gi)];
+    // 3. Inline "(amount)" groups (supports (10*), (30r), (100)=200)
+    const parenGroups = [...cleaned.matchAll(/([\d\s.,/_+\-\\*]+?)\(\s*@?\s*(\d+(?:\.\d+)?)\s*(?:\*|into|intu|ento|in|rs|r)?\s*\)/gi)];
     if (parenGroups.length > 0) {
       let addedHere = false;
       for (const grp of parenGroups) {
@@ -513,7 +570,7 @@ function analyzeWhatsAppText(raw) {
 
     // 5. Separator match
     const sepMatch = !deferToBuffer && cleaned.match(
-      /^([\d\s.,/_+\-\\*=*#]+?)\s*(?:=+|\*\*|\*|\/\/|\/|#|:|---|--|-|,{2,}|\.+|@|×|x)\s*(\d+(?:\.\d+)?)$/i
+      /^([\d\s.,/_+\-\\*=*#]+?)\s*(?:=+|\*\*|\*|\/\/|\.\s*\/\s*\+|\/\+|\/|#|:|---|--|-|,{2,}|\.+|@|×|x)\s*(\d+(?:\.\d+)?)$/i
     );
     if (sepMatch) {
       const nums = extractJodiList(sepMatch[1]);
@@ -1432,6 +1489,41 @@ export default function App() {
     if (fromBridge && window.SunnyNativeBridge?.returnToPreviousApp) {
       setTimeout(() => window.SunnyNativeBridge.returnToPreviousApp(), 250);
     }
+  };
+
+  const toggleCrossingJodaCut = (spIndex, cutMode) => {
+    setPendingConfirm((prev) => {
+      if (!prev || !Array.isArray(prev.specialPreviews)) return prev;
+      const nextSpecials = prev.specialPreviews.map((sp, idx) => {
+        if (idx !== spIndex || sp.kind !== 'crossing') return sp;
+        const digits = sp.digits || [];
+        const amt = sp.perAmt;
+        const items = [];
+        for (const d1 of digits) {
+          for (const d2 of digits) {
+            if (cutMode && d1 === d2) continue;
+            items.push({ number: d1 === 0 && d2 === 0 ? 100 : d1 * 10 + d2, amount: amt });
+          }
+        }
+        items.sort((a, b) => a.number - b.number);
+        return {
+          ...sp,
+          isJodaCut: cutMode,
+          count: items.length,
+          total: items.reduce((s, x) => s + x.amount, 0),
+          items,
+        };
+      });
+      const allSpecialItems = nextSpecials.flatMap((sp) => sp.items || []);
+      const nextResults = [...(prev.normalResults || []), ...allSpecialItems].sort(
+        (a, b) => a.number - b.number
+      );
+      return {
+        ...prev,
+        specialPreviews: nextSpecials,
+        results: nextResults,
+      };
+    });
   };
 
   const handleCancelPendingAdd = () => {
@@ -4565,6 +4657,44 @@ export default function App() {
                             {sp.count} Jodis • ₹{sp.total.toLocaleString('en-IN')}
                           </span>
                         </div>
+                        {sp.kind === 'crossing' && (
+                          <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
+                            <button
+                              type="button"
+                              onClick={() => toggleCrossingJodaCut(sIdx, false)}
+                              style={{
+                                flex: 1,
+                                padding: '4px 6px',
+                                borderRadius: '7px',
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                background: !sp.isJodaCut ? t.accent : t.cardBg,
+                                color: !sp.isJodaCut ? '#ffffff' : t.textSecondary,
+                                border: `1px solid ${!sp.isJodaCut ? t.accent : t.cardBorder}`,
+                              }}
+                            >
+                              With Joda (जोड़े के साथ)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => toggleCrossingJodaCut(sIdx, true)}
+                              style={{
+                                flex: 1,
+                                padding: '4px 6px',
+                                borderRadius: '7px',
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                background: sp.isJodaCut ? t.accent : t.cardBg,
+                                color: sp.isJodaCut ? '#ffffff' : t.textSecondary,
+                                border: `1px solid ${sp.isJodaCut ? t.accent : t.cardBorder}`,
+                              }}
+                            >
+                              Joda Cut (11..100 कट)
+                            </button>
+                          </div>
+                        )}
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
                           {(sp.items || []).map((item, jIdx) => (
                             <span
@@ -4643,7 +4773,7 @@ export default function App() {
                                 gap: '8px',
                               }}
                             >
-                              <div style={{ minWidth: 0 }}>
+                              <div style={{ minWidth: 0, flex: 1 }}>
                                 <div style={{ fontSize: '12px', fontWeight: 800, color: t.accentText }}>
                                   {sp.kind === 'haruf' ? '🎯 Haruf' : '🔀 Crossing'}:{' '}
                                   <span style={{ color: t.textPrimary }}>{sp.raw}</span>
@@ -4651,6 +4781,42 @@ export default function App() {
                                 <div style={{ fontSize: '10px', color: t.textSecondary, marginTop: '2px' }}>
                                   Tap Confirm to view {sp.count} Jodis (₹{sp.perAmt} each)
                                 </div>
+                                {sp.kind === 'crossing' && (
+                                  <div style={{ display: 'flex', gap: '5px', marginTop: '5px' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleCrossingJodaCut(sIdx, false)}
+                                      style={{
+                                        padding: '3px 7px',
+                                        borderRadius: '6px',
+                                        fontSize: '10px',
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        background: !sp.isJodaCut ? t.accent : t.cardBg,
+                                        color: !sp.isJodaCut ? '#ffffff' : t.textSecondary,
+                                        border: `1px solid ${!sp.isJodaCut ? t.accent : t.cardBorder}`,
+                                      }}
+                                    >
+                                      With Joda
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleCrossingJodaCut(sIdx, true)}
+                                      style={{
+                                        padding: '3px 7px',
+                                        borderRadius: '6px',
+                                        fontSize: '10px',
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        background: sp.isJodaCut ? t.accent : t.cardBg,
+                                        color: sp.isJodaCut ? '#ffffff' : t.textSecondary,
+                                        border: `1px solid ${sp.isJodaCut ? t.accent : t.cardBorder}`,
+                                      }}
+                                    >
+                                      Joda Cut (11..100 कट)
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                               <span style={{ fontSize: '14px', fontWeight: 800, color: t.textPrimary, whiteSpace: 'nowrap' }}>
                                 ₹{sp.total.toLocaleString('en-IN')}
