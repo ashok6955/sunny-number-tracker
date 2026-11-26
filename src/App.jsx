@@ -1053,6 +1053,34 @@ export default function App() {
       .sort((a, b) => b.createdAt - a.createdAt);
   }, [entries, activeCategory]);
 
+  const [expandedBatchId, setExpandedBatchId] = useState(null);
+
+  const historyTransactions = useMemo(() => {
+    const groups = new Map();
+    for (const ent of categoryEntries) {
+      const key = ent.batchId || String(ent.id).split('-')[0] || String(ent.createdAt);
+      if (!groups.has(key)) {
+        groups.set(key, {
+          batchId: key,
+          time:
+            ent.time ||
+            new Date(ent.createdAt).toLocaleTimeString('en-IN', {
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+          createdAt: ent.createdAt || 0,
+          items: [],
+          totalAmount: 0,
+        });
+      }
+      const g = groups.get(key);
+      g.items.push(ent);
+      g.totalAmount += Number(ent.amount || 0);
+      if ((ent.createdAt || 0) > g.createdAt) g.createdAt = ent.createdAt || 0;
+    }
+    return [...groups.values()].sort((a, b) => b.createdAt - a.createdAt);
+  }, [categoryEntries]);
+
   const selectedBoxEntries = useMemo(() => {
     if (!selectedBox) return [];
     return entries
@@ -1090,12 +1118,14 @@ export default function App() {
   const commitParsedEntries = (parsed, sourceLabel = '') => {
     if (parsed.length === 0) return false;
     const now = Date.now();
+    const batchId = `b-${now}-${Math.random().toString(36).slice(2, 6)}`;
     const timeStr = new Date(now).toLocaleTimeString('en-IN', {
       hour: '2-digit',
       minute: '2-digit',
     });
     const newItems = parsed.map((item, idx) => ({
       id: `${now}-${idx}-${Math.random().toString(36).slice(2, 7)}`,
+      batchId,
       category: activeCategory,
       number: item.number,
       amount: item.amount,
@@ -1109,11 +1139,11 @@ export default function App() {
 
     if (newItems.length === 1) {
       showToast(
-        `${sourceLabel}${activeCategory}: Numbers ${newItems[0].number} में ₹${newItems[0].amount} जुड़ा`
+        `${sourceLabel}${activeCategory}: Number ${String(newItems[0].number).padStart(2, '0')} added ₹${newItems[0].amount}`
       );
     } else {
       showToast(
-        `${sourceLabel}${activeCategory} में ${newItems.length} Numbers जुड़े (₹${addedTotal})`
+        `${sourceLabel}${activeCategory}: ${newItems.length} Jodis added (₹${addedTotal})`
       );
     }
     return true;
@@ -1408,7 +1438,16 @@ export default function App() {
     deletedIdsRef.current.add(id);
     persistSyncMeta();
     setEntries((prev) => prev.filter((item) => item.id !== id));
-    showToast('एंट्री हटाई गई');
+    showToast('Entry deleted');
+  };
+
+  const handleDeleteBatch = (batchItems) => {
+    const idSet = new Set(batchItems.map((x) => x.id));
+    for (const id of idSet) deletedIdsRef.current.add(id);
+    persistSyncMeta();
+    const total = batchItems.reduce((s, x) => s + Number(x.amount || 0), 0);
+    setEntries((prev) => prev.filter((item) => !idSet.has(item.id)));
+    showToast(`Deleted ${batchItems.length} Jodis (₹${total.toLocaleString('en-IN')})`);
   };
 
   const handleUndoLast = () => {
@@ -3727,10 +3766,10 @@ export default function App() {
                       </button>
                       <div>
                         <h2 style={{ fontSize: '15px', fontWeight: 700, color: t.textPrimary }}>
-                          📜 {activeCategory} — एंट्री History ({categoryEntries.length})
+                          📜 {activeCategory} — Transactions ({historyTransactions.length})
                         </h2>
                         <p style={{ fontSize: '11px', color: t.textSecondary }}>
-                          गलत एंट्री हटाने पर मेन ग्रिड व टोटल से भी हट जाएगी
+                          Tap any transaction to see all jodis, or delete the whole pattern in 1 click
                         </p>
                       </div>
                     </div>
@@ -3753,11 +3792,11 @@ export default function App() {
                       overflowY: 'auto',
                       display: 'flex',
                       flexDirection: 'column',
-                      gap: '6px',
-                      maxHeight: '360px',
+                      gap: '8px',
+                      maxHeight: '380px',
                     }}
                   >
-                    {categoryEntries.length === 0 ? (
+                    {historyTransactions.length === 0 ? (
                       <p
                         style={{
                           fontSize: '13px',
@@ -3766,65 +3805,129 @@ export default function App() {
                           padding: '24px 0',
                         }}
                       >
-                        अभी {activeCategory} में कोई एंट्री नहीं है।
+                        No entries in {activeCategory} yet.
                       </p>
                     ) : (
-                      categoryEntries.map((ent, idx) => {
-                        const timeLabel =
-                          ent.time ||
-                          new Date(ent.createdAt).toLocaleTimeString('en-IN', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          });
+                      historyTransactions.map((tx, idx) => {
+                        const isOpen = expandedBatchId === tx.batchId;
+                        const previewText = tx.items
+                          .slice(0, 5)
+                          .map((x) => `${String(x.number).padStart(2, '0')}=₹${x.amount}`)
+                          .join(', ') + (tx.items.length > 5 ? ` +${tx.items.length - 5} more` : '');
                         return (
                           <div
-                            key={ent.id}
+                            key={tx.batchId}
                             style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
                               background: t.inputBg,
-                              border: `1px solid ${t.cardBorder}`,
-                              borderRadius: '10px',
-                              padding: '8px 10px',
+                              border: `1px solid ${isOpen ? t.accent : t.cardBorder}`,
+                              borderRadius: '12px',
+                              padding: '10px',
+                              display: 'flex',
+                              flexDirection: 'column',
                               gap: '8px',
                             }}
                           >
-                            <div>
-                              <div style={{ fontSize: '13px', fontWeight: 800, color: t.textPrimary }}>
-                                जोड़ी {String(ent.number).padStart(2, '0')} —{' '}
-                                <span style={{ color: t.accentText }}>₹{ent.amount}</span>
-                              </div>
-                              <div style={{ fontSize: '10px', color: t.textMuted }}>
-                                #{categoryEntries.length - idx} • समय: {timeLabel}
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                handleDeleteEntry(ent.id);
-                                showToast(
-                                  `${activeCategory}: जोड़ी ${String(ent.number).padStart(2, '0')} (₹${ent.amount}) हट गई`
-                                );
-                              }}
-                              title="यह एंट्री Delete"
+                            <div
                               style={{
-                                background: 'rgba(225, 29, 72, 0.14)',
-                                border: '1px solid #f43f5e',
-                                color: '#fb7185',
-                                borderRadius: '8px',
-                                padding: '6px 9px',
-                                fontSize: '11px',
-                                fontWeight: 700,
-                                cursor: 'pointer',
                                 display: 'flex',
+                                justifyContent: 'space-between',
                                 alignItems: 'center',
-                                gap: '4px',
+                                gap: '8px',
                               }}
                             >
-                              <Trash2 size={13} />
-                              Delete
-                            </button>
+                              <div
+                                onClick={() => setExpandedBatchId(isOpen ? null : tx.batchId)}
+                                style={{ flex: 1, cursor: 'pointer' }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: '13px', fontWeight: 800, color: t.textPrimary }}>
+                                    #{historyTransactions.length - idx} • {tx.items.length} {tx.items.length === 1 ? 'Jodi' : 'Jodis'}
+                                  </span>
+                                  <span style={{ fontSize: '13px', fontWeight: 800, color: t.accentText }}>
+                                    ₹{tx.totalAmount.toLocaleString('en-IN')}
+                                  </span>
+                                  <span style={{ fontSize: '10px', color: t.textMuted }}>
+                                    • {tx.time}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: '11px', color: t.textSecondary, marginTop: '3px' }}>
+                                  {previewText} {isOpen ? '▲' : '▼'}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteBatch(tx.items)}
+                                title="Delete entire pattern"
+                                style={{
+                                  background: 'rgba(225, 29, 72, 0.14)',
+                                  border: '1px solid #f43f5e',
+                                  color: '#fb7185',
+                                  borderRadius: '8px',
+                                  padding: '6px 9px',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                <Trash2 size={13} />
+                                Delete
+                              </button>
+                            </div>
+
+                            {isOpen && (
+                              <div
+                                style={{
+                                  borderTop: `1px dashed ${t.cardBorder}`,
+                                  paddingTop: '8px',
+                                  display: 'flex',
+                                  flexWrap: 'wrap',
+                                  gap: '5px',
+                                }}
+                              >
+                                {tx.items.map((ent) => (
+                                  <span
+                                    key={ent.id}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '5px',
+                                      background: t.cardBg,
+                                      border: `1px solid ${t.cardBorder}`,
+                                      borderRadius: '7px',
+                                      padding: '3px 7px',
+                                      fontSize: '11px',
+                                      fontWeight: 700,
+                                      color: t.textPrimary,
+                                    }}
+                                  >
+                                    <span>
+                                      {String(ent.number).padStart(2, '0')} ={' '}
+                                      <span style={{ color: t.accentText }}>₹{ent.amount}</span>
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteEntry(ent.id)}
+                                      title="Delete this jodi"
+                                      style={{
+                                        background: 'transparent',
+                                        border: 'none',
+                                        color: '#fb7185',
+                                        cursor: 'pointer',
+                                        padding: 0,
+                                        fontSize: '12px',
+                                        lineHeight: 1,
+                                      }}
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         );
                       })
