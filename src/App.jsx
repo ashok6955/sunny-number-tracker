@@ -1298,13 +1298,14 @@ export default function App() {
         return;
       }
       if (savedCount > 0) {
-        showToast('पैटर्न एक्सेप्ट नहीं हुआ — फेल History में सेव हो गया (Tools देखें)');
+        showToast('Pattern not accepted — saved to Failed History (check Menu)');
       } else {
-        showToast('सही फॉर्मेट लिखें: जैसे 23 100 या 23=50');
+        showToast('Enter valid format: e.g. 23 100 or 23=50');
       }
       return;
     }
-    setPendingConfirm({ isError: false, results, failed, sourceLabel, rawText, fromBridge });
+    const sortedResults = [...results].sort((a, b) => a.number - b.number);
+    setPendingConfirm({ isError: false, results: sortedResults, failed, sourceLabel, rawText, fromBridge });
   };
 
   // Listen for clipboard text from native Android auto-clipboard check (when Auto ON)
