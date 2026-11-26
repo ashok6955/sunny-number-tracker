@@ -305,7 +305,9 @@ function analyzeWhatsAppText(raw) {
       /^(?:total|tot|ttl|tt|t|gt|all\s*total|hisab|balance|blnce|grand\s*total|टोटल|कुल)\b/i.test(
         line
       ) ||
-      /^\*?\(?\d+\s*₹?\]?\)*\s*[+\-*/=]*$/.test(line) ||
+      (/^\*?\(?\d+\s*₹?\]?\)*\s*[+\-*/=]*$/.test(line) &&
+        (/[₹*()+=]/.test(line) ||
+          (line.replace(/\D/g, '').length >= 3 && line.trim() !== '100'))) ||
       /\d+\s*[-+]\s*\d+\s*=/.test(line) ||
       /\b\d+\s*\+\+/.test(line)
     ) {
