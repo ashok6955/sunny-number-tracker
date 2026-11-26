@@ -634,7 +634,8 @@ export default function App() {
       return [];
     }
   });
-  const [motiMinAmount, setMotiMinAmount] = useState(0); // 0 = all, 300 = 30K (1%), 1000 = 1L (1%)
+  const [motiMinAmount, setMotiMinAmount] = useState(0);
+  const [cutApplied, setCutApplied] = useState(false); // 0 = all, 300 = 30K (1%), 1000 = 1L (1%)
   const [chartOwnerName, setChartOwnerName] = useState(() => localStorage.getItem('sunny_tracker_owner_v1') || 'Sunny');
   const [chartImageUrl, setChartImageUrl] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -2993,7 +2994,10 @@ export default function App() {
                         <button
                           key={preset.val}
                           type="button"
-                          onClick={() => setMotiMinAmount(preset.val)}
+                          onClick={() => {
+                            setMotiMinAmount(preset.val);
+                            if (preset.val === 0) setCutApplied(false);
+                          }}
                           style={{
                             background: activePreset ? t.accent : t.cardBg,
                             color: activePreset ? '#ffffff' : t.textPrimary,
@@ -3013,34 +3017,90 @@ export default function App() {
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '4px',
-                        marginLeft: 'auto',
+                        gap: '5px',
+                        width: '100%',
+                        marginTop: '4px',
                       }}
                     >
-                      <span style={{ fontSize: '10px', color: t.textMuted }}>Above ₹:</span>
+                      <span style={{ fontSize: '11px', color: t.textSecondary, fontWeight: 600 }}>
+                        Amount:
+                      </span>
                       <input
                         type="number"
                         min="0"
                         value={motiMinAmount || ''}
                         onChange={(e) => {
                           const v = parseFloat(e.target.value);
-                          setMotiMinAmount(Number.isFinite(v) && v > 0 ? v : 0);
+                          const nextVal = Number.isFinite(v) && v > 0 ? v : 0;
+                          setMotiMinAmount(nextVal);
+                          if (nextVal === 0) setCutApplied(false);
                         }}
-                        placeholder="800"
+                        placeholder="e.g. 70 or 800"
                         style={{
-                          width: '64px',
+                          flex: 1,
                           background: t.cardBg,
                           border: `1px solid ${t.cardBorder}`,
-                          borderRadius: '6px',
-                          padding: '3px 6px',
+                          borderRadius: '8px',
+                          padding: '6px 8px',
                           color: t.textPrimary,
-                          fontSize: '11px',
+                          fontSize: '12px',
                           fontWeight: 700,
                           outline: 'none',
                         }}
                       />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (motiMinAmount > 0) {
+                            setCutApplied((prev) => !prev);
+                          } else {
+                            showToast('Enter an amount first (e.g. 70 or 800)');
+                          }
+                        }}
+                        style={{
+                          background: cutApplied && motiMinAmount > 0 ? '#059669' : t.accent,
+                          border: 'none',
+                          color: '#ffffff',
+                          borderRadius: '8px',
+                          padding: '6px 12px',
+                          fontSize: '12px',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {cutApplied && motiMinAmount > 0 ? `Cut ON (-₹${motiMinAmount})` : 'Cut'}
+                      </button>
                     </div>
                   </div>
+
+                  {cutApplied && motiMinAmount > 0 && (() => {
+                    const cutItems = filteredRankedList.filter((x) => x.amount > motiMinAmount);
+                    const cutTotal = cutItems.reduce((s, x) => s + (x.amount - motiMinAmount), 0);
+                    return (
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          background: t.accentSoft,
+                          border: `1px solid ${t.accent}`,
+                          borderRadius: '10px',
+                          padding: '7px 10px',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          color: t.accentText,
+                        }}
+                      >
+                        <span>
+                          ✂️ Cut by ₹{motiMinAmount} • {cutItems.length} Jodis
+                        </span>
+                        <span style={{ color: t.textPrimary }}>
+                          Cut Total: ₹{cutTotal.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    );
+                  })()}
 
                   {/* Moti Jodi List (Highest to Lowest + Per-Row Copy Button) */}
                   <div
@@ -3067,7 +3127,14 @@ export default function App() {
                           : `₹${motiMinAmount} या उससे ऊपर कोई जोड़ी नहीं है — ऊपर "सभी" दबाकर देखें।`}
                       </p>
                     ) : (
-                      filteredRankedList.map((item, idx) => {
+                      (cutApplied && motiMinAmount > 0
+                        ? filteredRankedList.filter((x) => x.amount > motiMinAmount)
+                        : filteredRankedList
+                      ).map((item, idx) => {
+                        const displayAmt =
+                          cutApplied && motiMinAmount > 0
+                            ? item.amount - motiMinAmount
+                            : item.amount;
                         const tier = tierByAmount[item.amount];
                         const catTotal = categoryTotals[activeCategory] || 1;
                         const pct = ((item.amount / catTotal) * 100).toFixed(1);
@@ -3135,13 +3202,15 @@ export default function App() {
                                     style={{
                                       fontSize: '14px',
                                       fontWeight: 800,
-                                      color: tier === 'top' ? '#ffffff' : t.textPrimary,
+                                      color: t.textPrimary,
                                     }}
                                   >
-                                    जोड़ी {String(item.number).padStart(2, '0')}
+                                    Jodi {String(item.number).padStart(2, '0')}
                                   </div>
                                   <div style={{ fontSize: '10px', color: t.textMuted }}>
-                                    {jodiEntries.length} बार जुड़ा • {pct}% हिस्सा {isExpanded ? '▴' : '▾'}
+                                    {cutApplied && motiMinAmount > 0
+                                      ? `Orig: ₹${item.amount.toLocaleString('en-IN')} − Cut: ₹${motiMinAmount}`
+                                      : `${jodiEntries.length}x • ${pct}%`} {isExpanded ? '▴' : '▾'}
                                   </div>
                                 </div>
                               </div>
@@ -3151,13 +3220,13 @@ export default function App() {
                                   style={{
                                     fontSize: '14px',
                                     fontWeight: 800,
-                                    color: tier === 'top' ? '#fbbf24' : t.accentText,
+                                    color: t.accentText,
                                   }}
                                 >
-                                  ₹{item.amount.toLocaleString('en-IN')}
+                                  ₹{displayAmt.toLocaleString('en-IN')}
                                 </span>
                                 <button
-                                  onClick={() => handleCopySingleJodi(item.number, item.amount)}
+                                  onClick={() => handleCopySingleJodi(item.number, displayAmt)}
                                   title="यह जोड़ी Copy"
                                   style={{
                                     background: isRowCopied ? t.accent : t.cardBg,

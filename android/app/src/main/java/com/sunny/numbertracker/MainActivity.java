@@ -350,6 +350,8 @@ public class MainActivity extends BridgeActivity {
         webView.evaluateJavascript(js, value -> {
             if (value != null && value.contains("OK")) {
                 prefs.edit().putString(KEY_LAST_CLIP, text).apply();
+            } else if (force) {
+                storePendingClip(text);
             }
         });
     }
