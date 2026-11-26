@@ -1917,27 +1917,50 @@ export default function App() {
               </span>
             </p>
 
-            <button
-              onClick={() => setToolsView('entry_history')}
-              title="View Transactions & Delete Patterns"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                background: t.inputBg,
-                color: t.textPrimary,
-                border: `1px solid ${t.cardBorder}`,
-                borderRadius: '999px',
-                padding: '4px 10px',
-                fontSize: '11px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              <History size={12} color={t.accent} />
-              History
-            </button>
+            <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+              <button
+                onClick={() => setToolsView('moti_jodi')}
+                title="Filter & Copy Numbers Above Amount (e.g. 800+)"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: motiMinAmount > 0 ? t.accentSoft : t.inputBg,
+                  color: motiMinAmount > 0 ? t.accentText : t.textPrimary,
+                  border: `1px solid ${motiMinAmount > 0 ? t.accent : t.cardBorder}`,
+                  borderRadius: '999px',
+                  padding: '4px 10px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <Flame size={12} color={t.accent} />
+                {motiMinAmount > 0 ? `Cut ₹${motiMinAmount}+` : 'Cut / ₹+'}
+              </button>
+              <button
+                onClick={() => setToolsView('entry_history')}
+                title="View Transactions & Delete Patterns"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: t.inputBg,
+                  color: t.textPrimary,
+                  border: `1px solid ${t.cardBorder}`,
+                  borderRadius: '999px',
+                  padding: '4px 10px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <History size={12} color={t.accent} />
+                History
+              </button>
+            </div>
           </div>
 
           {/* Target Progress Bar (₹30,000 Game) */}
@@ -2959,9 +2982,11 @@ export default function App() {
                     }}
                   >
                     {[
-                      { label: 'सभी', val: 0 },
-                      { label: '30K काम (₹300+)', val: 300 },
-                      { label: '1L काम (₹1,000+)', val: 1000 },
+                      { label: 'All', val: 0 },
+                      { label: '₹300+', val: 300 },
+                      { label: '₹500+', val: 500 },
+                      { label: '₹800+', val: 800 },
+                      { label: '₹1,000+', val: 1000 },
                     ].map((preset) => {
                       const activePreset = motiMinAmount === preset.val;
                       return (
@@ -2970,11 +2995,11 @@ export default function App() {
                           type="button"
                           onClick={() => setMotiMinAmount(preset.val)}
                           style={{
-                            background: activePreset ? '#f59e0b' : t.cardBg,
-                            color: activePreset ? '#000000' : t.textPrimary,
-                            border: `1px solid ${activePreset ? '#f59e0b' : t.cardBorder}`,
-                            borderRadius: '7px',
-                            padding: '4px 8px',
+                            background: activePreset ? t.accent : t.cardBg,
+                            color: activePreset ? '#ffffff' : t.textPrimary,
+                            border: `1px solid ${activePreset ? t.accent : t.cardBorder}`,
+                            borderRadius: '999px',
+                            padding: '4px 9px',
                             fontSize: '11px',
                             fontWeight: 700,
                             cursor: 'pointer',
@@ -2992,7 +3017,7 @@ export default function App() {
                         marginLeft: 'auto',
                       }}
                     >
-                      <span style={{ fontSize: '10px', color: t.textMuted }}>₹ से ऊपर:</span>
+                      <span style={{ fontSize: '10px', color: t.textMuted }}>Above ₹:</span>
                       <input
                         type="number"
                         min="0"
@@ -3001,7 +3026,7 @@ export default function App() {
                           const v = parseFloat(e.target.value);
                           setMotiMinAmount(Number.isFinite(v) && v > 0 ? v : 0);
                         }}
-                        placeholder="0"
+                        placeholder="800"
                         style={{
                           width: '64px',
                           background: t.cardBg,
@@ -3054,25 +3079,10 @@ export default function App() {
                         let badgeColor = t.textSecondary;
 
                         if (tier === 'top') {
-                          badgeLabel = '👑 सबसे मोटी';
-                          rowBg = '#000000';
-                          rowBorder = '#f59e0b';
-                          badgeColor = '#fbbf24';
-                        } else if (tier === 'second') {
-                          badgeLabel = '2nd नीचे';
-                          rowBg = 'rgba(234, 88, 12, 0.14)';
-                          rowBorder = '#f97316';
-                          badgeColor = '#fb923c';
-                        } else if (tier === 'third') {
-                          badgeLabel = '3rd नीचे';
-                          rowBg = 'rgba(2, 132, 199, 0.14)';
-                          rowBorder = '#38bdf8';
-                          badgeColor = '#38bdf8';
-                        } else if (tier === 'lowest') {
-                          badgeLabel = 'Lowest';
-                          rowBg = 'rgba(225, 29, 72, 0.14)';
-                          rowBorder = '#f43f5e';
-                          badgeColor = '#fb7185';
+                          badgeLabel = '👑 Top';
+                          rowBg = t.accentSoft;
+                          rowBorder = t.accent;
+                          badgeColor = t.accentText;
                         }
 
                         const jodiEntries = entries.filter(
@@ -3240,31 +3250,72 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Bottom "All Text" Copy Button */}
+                  {/* Bottom Copy & Cut Buttons */}
                   {filteredRankedList.length > 0 && (
-                    <button
-                      onClick={handleCopyAllMotiJodi}
-                      style={{
-                        width: '100%',
-                        background: copiedKey === 'ALL' ? '#059669' : '#0284c7',
-                        border: 'none',
-                        color: '#ffffff',
-                        borderRadius: '12px',
-                        padding: '12px',
-                        fontSize: '13px',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px',
-                      }}
-                    >
-                      {copiedKey === 'ALL' ? <Check size={16} /> : <Copy size={16} />}
-                      {copiedKey === 'ALL'
-                        ? 'सारी जोड़ी कॉपी हो गई ✓'
-                        : `All Text Copy (${filteredRankedList.length} जोड़ी)`}
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        onClick={handleCopyAllMotiJodi}
+                        style={{
+                          flex: 1,
+                          background: copiedKey === 'ALL' ? '#059669' : t.accent,
+                          border: 'none',
+                          color: '#ffffff',
+                          borderRadius: '12px',
+                          padding: '11px',
+                          fontSize: '12px',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                        }}
+                      >
+                        {copiedKey === 'ALL' ? <Check size={15} /> : <Copy size={15} />}
+                        {copiedKey === 'ALL'
+                          ? 'Copied ✓'
+                          : `Copy All (${filteredRankedList.length})`}
+                      </button>
+                      {motiMinAmount > 0 && filteredRankedList.some((x) => x.amount > motiMinAmount) && (
+                        <button
+                          onClick={async () => {
+                            const cutItems = filteredRankedList.filter((x) => x.amount > motiMinAmount);
+                            const cutText = [
+                              `*${activeCategory} Cut (>₹${motiMinAmount})*`,
+                              ...cutItems.map(
+                                (x) => `${String(x.number).padStart(2, '0')} = ${x.amount - motiMinAmount}`
+                              ),
+                            ].join('\n');
+                            try {
+                              await navigator.clipboard.writeText(cutText);
+                              setCopiedKey('CUT');
+                              setTimeout(() => setCopiedKey(null), 1500);
+                              showToast(`Copied ${cutItems.length} cut jodis (>₹${motiMinAmount})`);
+                            } catch {
+                              showToast('Copy failed');
+                            }
+                          }}
+                          style={{
+                            flex: 1,
+                            background: copiedKey === 'CUT' ? '#059669' : t.inputBg,
+                            border: `1.5px solid ${t.accent}`,
+                            color: copiedKey === 'CUT' ? '#ffffff' : t.accentText,
+                            borderRadius: '12px',
+                            padding: '11px',
+                            fontSize: '12px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                          }}
+                        >
+                          {copiedKey === 'CUT' ? <Check size={15} /> : <Copy size={15} />}
+                          {copiedKey === 'CUT' ? 'Cut Copied ✓' : `Copy Cut (>₹${motiMinAmount})`}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </>
               ) : toolsView === 'share_image' ? (
