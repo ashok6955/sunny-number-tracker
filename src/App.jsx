@@ -178,10 +178,11 @@ function tryParseCrossingLine(line) {
   const hasHarufHint =
     /\b(?:haruf|harf|harup|haroop|hrf|bahar|bahr|andar|ander|ab|ba)\b/i.test(line) ||
     /(?:हरूफ|हरफ|बाहर|अंदर|अन्दर)/.test(line);
-  const stuckTokens = line.match(/\b\d{4,9}\b/g) || [];
+  const lineWithoutParenAmts = line.replace(/\(\s*@?\s*\d+(?:\.\d+)?\s*(?:\*|into|intu|ento|in|rs|r)?\s*\)/gi, ' ');
+  const stuckTokens = lineWithoutParenAmts.match(/\b\d{4,9}\b/g) || [];
   const hasStuckCrossingDigits =
     !hasHarufHint &&
-    stuckTokens.some((tok) => new Set(tok.split('')).size >= 2 && !/^[1-9]0{3,}$/.test(tok));
+    stuckTokens.some((tok) => new Set(tok.split('')).size >= 2 && !/^[1-9]\d?00+$/.test(tok));
   const isFullCrossing = hasExplicitCrossing || (!isJodaCut && hasStuckCrossingDigits);
   if (!isJodaCut && !isFullCrossing) return null;
 
