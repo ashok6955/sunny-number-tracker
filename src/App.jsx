@@ -2154,9 +2154,9 @@ export default function App() {
             }}
           >
             <p style={{ fontSize: '11px', color: t.textSecondary, whiteSpace: 'nowrap' }}>
-              Grand Total:{' '}
+              {activeCategory} Total:{' '}
               <strong style={{ color: t.accent }}>
-                ₹{grandTotal.toLocaleString('en-IN')}
+                ₹{categoryTotals[activeCategory].toLocaleString('en-IN')}
               </strong>{' '}
               <span style={{ color: t.textMuted }}>
                 / ₹{gameTarget.toLocaleString('en-IN')}
@@ -2590,7 +2590,7 @@ export default function App() {
                   color: t.textSecondary,
                 }}
               >
-                All 6 Categories (Grand)
+                {activeCategory} Jodis
               </div>
               <div
                 style={{
@@ -2600,7 +2600,7 @@ export default function App() {
                   lineHeight: 1.2,
                 }}
               >
-                ₹{grandTotal.toLocaleString('en-IN')}
+                {rankedList.length} / 100
               </div>
             </div>
           </div>
@@ -2842,6 +2842,42 @@ export default function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <button
+                      onClick={() => setToolsView('all_sales')}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        background: t.accentSoft,
+                        border: `1.5px solid ${t.accent}`,
+                        borderRadius: '12px',
+                        padding: '13px 14px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: 800, color: t.accentText }}>
+                          📊 All Games Total Sale
+                        </div>
+                        <div style={{ fontSize: '11px', color: t.textSecondary, marginTop: '2px' }}>
+                          DB + SG + FD + GB + GL + DS combined sale
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          background: t.accent,
+                          color: '#ffffff',
+                          fontWeight: 800,
+                          fontSize: '12px',
+                          padding: '4px 10px',
+                          borderRadius: '999px',
+                        }}
+                      >
+                        ₹{grandTotal.toLocaleString('en-IN')}
+                      </span>
+                    </button>
+
                     <button
                       onClick={() => setToolsView('moti_jodi')}
                       style={{
@@ -3163,6 +3199,143 @@ export default function App() {
                       </div>
                     </button>
                   </div>
+                </>
+              ) : toolsView === 'all_sales' ? (
+                <>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        onClick={() => setToolsView('menu')}
+                        title="Back to Settings"
+                        style={{
+                          background: t.inputBg,
+                          border: `1px solid ${t.cardBorder}`,
+                          color: t.textPrimary,
+                          borderRadius: '8px',
+                          padding: '5px 7px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <ArrowLeft size={15} />
+                      </button>
+                      <div>
+                        <h2 style={{ fontSize: '15px', fontWeight: 800, color: t.textPrimary }}>
+                          📊 All Games Total Sale
+                        </h2>
+                        <p style={{ fontSize: '11px', color: t.textSecondary }}>
+                          Combined sale across all 6 categories
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setToolsView(null)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: t.textSecondary,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {CATEGORIES.map((cat) => {
+                      const catAmt = categoryTotals[cat] || 0;
+                      const catCount = entries.filter((e) => e.category === cat).length;
+                      return (
+                        <div
+                          key={cat}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            background: t.inputBg,
+                            border: `1px solid ${cat === activeCategory ? t.accent : t.cardBorder}`,
+                            borderRadius: '10px',
+                            padding: '10px 12px',
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontSize: '13px', fontWeight: 800, color: t.textPrimary }}>
+                              {cat}
+                            </div>
+                            <div style={{ fontSize: '10px', color: t.textMuted }}>
+                              {catCount} entries
+                            </div>
+                          </div>
+                          <span style={{ fontSize: '14px', fontWeight: 800, color: t.accentText }}>
+                            ₹{catAmt.toLocaleString('en-IN')}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      background: t.accentSoft,
+                      border: `1.5px solid ${t.accent}`,
+                      borderRadius: '12px',
+                      padding: '12px 14px',
+                    }}
+                  >
+                    <span style={{ fontSize: '13px', fontWeight: 800, color: t.textPrimary }}>
+                      Final Total Sale (All 6)
+                    </span>
+                    <span style={{ fontSize: '18px', fontWeight: 900, color: t.accentText }}>
+                      ₹{grandTotal.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const lines = [
+                        '*All Games Total Sale*',
+                        ...CATEGORIES.map(
+                          (cat) => `${cat}: ₹${(categoryTotals[cat] || 0).toLocaleString('en-IN')}`
+                        ),
+                        `*Final Total: ₹${grandTotal.toLocaleString('en-IN')}*`,
+                      ].join('\n');
+                      try {
+                        await navigator.clipboard.writeText(lines);
+                        showToast('All Games Sale Report copied ✓');
+                      } catch {
+                        showToast('Copy failed');
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      background: t.accent,
+                      border: 'none',
+                      color: '#ffffff',
+                      borderRadius: '12px',
+                      padding: '12px',
+                      fontSize: '13px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <Copy size={15} />
+                    Copy Sale Report
+                  </button>
                 </>
               ) : toolsView === 'moti_jodi' ? (
                 <>
