@@ -43,6 +43,19 @@
             android:stopWithTask="false"
             android:foregroundServiceType="dataSync" />
 
+        <service
+            android:name=".SunnyKeyboardService"
+            android:label="Sunny Live Keyboard"
+            android:exported="true"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/sunny_ime_method" />
+        </service>
+
         <receiver
             android:name=".SunnyBootReceiver"
             android:enabled="true"

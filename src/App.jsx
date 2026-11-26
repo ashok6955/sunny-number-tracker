@@ -1072,6 +1072,14 @@ export default function App() {
 
     const handleResumeSync = () => {
       if (document.visibilityState === 'visible') {
+        try {
+          const pendingBg = window.SunnyNativeBridge?.consumePendingBackgroundSync?.();
+          if (pendingBg) {
+            window.receiveSunnySyncPayload?.(pendingBg);
+          }
+        } catch {
+          // ignore
+        }
         sendHeartbeat();
       }
     };

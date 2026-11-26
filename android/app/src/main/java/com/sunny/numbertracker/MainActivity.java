@@ -173,11 +173,19 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public void updateLiveNotificationStats(String summary) {
             if (summary == null || summary.trim().isEmpty()) return;
+            String clean = summary.trim();
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                    .edit()
+                    .putString("live_stats_summary", clean)
+                    .apply();
+            Intent kb = new Intent(SunnySyncService.ACTION_UPDATE_STATS);
+            kb.setPackage(getPackageName());
+            sendBroadcast(kb);
             runOnUiThread(() -> {
                 try {
                     Intent svc = new Intent(MainActivity.this, SunnySyncService.class);
                     svc.setAction(SunnySyncService.ACTION_UPDATE_STATS);
-                    svc.putExtra("summary", summary.trim());
+                    svc.putExtra("summary", clean);
                     startService(svc);
                 } catch (Exception ignored) {}
             });
