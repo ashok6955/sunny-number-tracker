@@ -374,6 +374,7 @@ public class SunnySyncService extends Service {
 
     private Notification buildLiveNotification(String text) {
         Intent openIntent = new Intent(this, MainActivity.class);
+        openIntent.putExtra("from_copy_trigger", true);
         PendingIntent pi = PendingIntent.getActivity(this, 0, openIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new NotificationCompat.Builder(this, CHANNEL_LIVE)
                 .setSmallIcon(R.mipmap.ic_launcher)
@@ -381,6 +382,7 @@ public class SunnySyncService extends Service {
                 .setContentText(text)
                 .setOngoing(true)
                 .setContentIntent(pi)
+                .addAction(R.mipmap.ic_launcher, "📋 पेस्ट करें", pi)
                 .build();
     }
 
