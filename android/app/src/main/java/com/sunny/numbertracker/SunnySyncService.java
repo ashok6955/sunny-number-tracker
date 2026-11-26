@@ -19,11 +19,11 @@ import androidx.core.app.NotificationCompat;
 
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
@@ -32,6 +32,8 @@ public class SunnySyncService extends Service {
     public static final String ACTION_STOP = "com.sunny.numbertracker.SYNC_STOP";
     public static final String ACTION_SYNC_RECEIVED = "com.sunny.numbertracker.SYNC_DATA_RECEIVED";
 
+    private static final String MQTT_HOST = "broker.emqx.io";
+    private static final int MQTT_PORT = 1883;
     private static final String CHANNEL_LIVE = "sunny_live_sync";
     private static final String CHANNEL_ALERT = "sunny_sync_alert";
     private static final int NOTIF_LIVE_ID = 1001;
@@ -41,12 +43,11 @@ public class SunnySyncService extends Service {
     private static final String KEY_SYNC_TOPIC = "bg_sync_topic";
     private static final String KEY_SYNC_DEVICE_ID = "bg_sync_device_id";
     private static final String KEY_PENDING_SYNC_JSON = "bg_pending_sync_json";
-    private static final long HEARTBEAT_INTERVAL_MS = 25000L;
+    private static final long HEARTBEAT_INTERVAL_MS = 40000L;
 
     private volatile boolean running = false;
     private Thread workerThread;
-    private Thread heartbeatThread;
-    private HttpURLConnection activeConn;
+    private Socket activeSocket;
     private PowerManager.WakeLock wakeLock;
 
     @Override
@@ -136,119 +137,191 @@ public class SunnySyncService extends Service {
         running = true;
         acquireWakeLock();
 
+        // Pure-Java MQTT 3.1.1 persistent connection with retained presence + sync listener (0 rate limits)
         workerThread = new Thread(() -> {
+            long lastPingAt = 0L;
             while (running) {
+                Socket sock = null;
                 try {
-                    URL url = new URL("https://ntfy.sh/" + topic + "/sse");
-                    activeConn = (HttpURLConnection) url.openConnection();
-                    activeConn.setConnectTimeout(15000);
-                    activeConn.setReadTimeout(0);
-                    activeConn.setRequestMethod("GET");
+                    sock = new Socket();
+                    activeSocket = sock;
+                    sock.connect(new InetSocketAddress(MQTT_HOST, MQTT_PORT), 12000);
+                    sock.setSoTimeout(50000);
+                    OutputStream out = sock.getOutputStream();
+                    InputStream in = sock.getInputStream();
 
-                    int code = activeConn.getResponseCode();
-                    if (code == 200) {
-                        updateLiveNotification("🟢 लाइव सिंक जुड़ा है (" + topic.replace("sunny_jnt_", "") + ")");
-                        BufferedReader reader = new BufferedReader(new InputStreamReader(activeConn.getInputStream()));
-                        String line;
-                        while (running && (line = reader.readLine()) != null) {
-                            if (line.startsWith("data:")) {
-                                String rawJson = line.substring(5).trim();
-                                handleIncomingSseData(rawJson);
-                            }
+                    // 1. MQTT CONNECT
+                    String clientId = "sunny_svc_" + deviceId + "_" + (System.currentTimeMillis() % 10000);
+                    out.write(buildMqttConnectPacket(clientId));
+                    out.flush();
+                    int connAck = readMqttPacketType(in);
+                    if (connAck != 2) throw new Exception("CONNACK=" + connAck);
+
+                    // 2. MQTT SUBSCRIBE to topic/sync and topic/dev/+
+                    out.write(buildMqttSubscribePacket(1, new String[]{topic + "/sync", topic + "/dev/+"}));
+                    out.flush();
+
+                    updateLiveNotification("🟢 लाइव सिंक जुड़ा है (" + topic.replace("sunny_jnt_", "") + ")");
+
+                    // 3. Publish retained online heartbeat immediately + every 40s
+                    publishPresence(out, topic, deviceId);
+                    lastPingAt = System.currentTimeMillis();
+
+                    while (running) {
+                        long now = System.currentTimeMillis();
+                        if (now - lastPingAt >= HEARTBEAT_INTERVAL_MS) {
+                            publishPresence(out, topic, deviceId);
+                            lastPingAt = now;
                         }
-                        reader.close();
+                        if (in.available() > 0) {
+                            handleMqttIncoming(in);
+                        } else {
+                            Thread.sleep(400);
+                        }
                     }
                 } catch (Exception e) {
                     if (running) {
                         updateLiveNotification("🟡 नेटवर्क इंतज़ार... (ऑटो रीकनेक्ट)");
                     }
                 } finally {
-                    if (activeConn != null) {
-                        try { activeConn.disconnect(); } catch (Exception ignored) {}
+                    if (sock != null) {
+                        try { sock.close(); } catch (Exception ignored) {}
                     }
+                    activeSocket = null;
                 }
                 if (running) {
-                    try { Thread.sleep(5000); } catch (InterruptedException ignored) { break; }
+                    try { Thread.sleep(4000); } catch (InterruptedException ignored) { break; }
                 }
             }
         });
         workerThread.start();
-
-        // 24/7 native heartbeat so backgrounded / screen-off phones stay Connected: 4
-        heartbeatThread = new Thread(() -> {
-            while (running) {
-                sendHeartbeatPing(topic, deviceId);
-                try {
-                    Thread.sleep(HEARTBEAT_INTERVAL_MS);
-                } catch (InterruptedException ignored) {
-                    break;
-                }
-            }
-        });
-        heartbeatThread.start();
     }
 
-    private void sendHeartbeatPing(String topic, String deviceId) {
-        HttpURLConnection conn = null;
-        try {
-            JSONObject ping = new JSONObject();
-            ping.put("type", "SUNNY_PING_V1");
-            ping.put("senderId", deviceId);
-            ping.put("sentAt", System.currentTimeMillis());
-            byte[] bytes = ping.toString().getBytes(StandardCharsets.UTF_8);
+    private void publishPresence(OutputStream out, String topic, String deviceId) throws Exception {
+        JSONObject ping = new JSONObject();
+        ping.put("type", "SUNNY_PING_V1");
+        ping.put("senderId", deviceId);
+        ping.put("sentAt", System.currentTimeMillis());
+        out.write(buildMqttPublishPacket(topic + "/dev/" + deviceId, ping.toString(), true));
+        out.flush();
+    }
 
-            URL url = new URL("https://ntfy.sh/" + topic);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(10000);
-            conn.setReadTimeout(10000);
-            conn.setRequestMethod("POST");
-            conn.setDoOutput(true);
-            conn.setRequestProperty("Content-Type", "application/json");
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(bytes);
-            }
-            conn.getResponseCode();
-        } catch (Exception ignored) {
-        } finally {
-            if (conn != null) {
-                try { conn.disconnect(); } catch (Exception ignored) {}
+    private void handleMqttIncoming(InputStream in) throws Exception {
+        int b1 = in.read();
+        if (b1 < 0) throw new Exception("EOF");
+        int packetType = (b1 >> 4) & 0x0F;
+        int remLen = readRemainingLength(in);
+        byte[] body = new byte[remLen];
+        int off = 0;
+        while (off < remLen) {
+            int r = in.read(body, off, remLen - off);
+            if (r < 0) throw new Exception("EOF");
+            off += r;
+        }
+        if (packetType == 3 && body.length >= 2) { // PUBLISH
+            int topicLen = ((body[0] & 0xFF) << 8) | (body[1] & 0xFF);
+            int pos = 2 + topicLen;
+            if ((b1 & 0x06) != 0) pos += 2; // QoS > 0 packet id
+            if (pos <= body.length) {
+                String msg = new String(body, pos, body.length - pos, StandardCharsets.UTF_8);
+                if (msg.contains("SUNNY_SYNC_V1")) {
+                    getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                            .edit()
+                            .putString(KEY_PENDING_SYNC_JSON, msg)
+                            .apply();
+                }
+                if (msg.contains("SUNNY_SYNC_V1") || msg.contains("SUNNY_PING_V1")) {
+                    Intent b = new Intent(ACTION_SYNC_RECEIVED);
+                    b.setPackage(getPackageName());
+                    b.putExtra("payload", msg);
+                    sendBroadcast(b);
+                }
             }
         }
     }
 
-    private void handleIncomingSseData(String rawJson) {
-        try {
-            JSONObject wrapper = new JSONObject(rawJson);
-            String msg = wrapper.optString("message", "");
-            if (msg.isEmpty()) return;
-            boolean isSyncData = msg.contains("SUNNY_SYNC_V1");
-            boolean isPing = msg.contains("SUNNY_PING_V1");
-            if (!isSyncData && !isPing) return;
+    private int readMqttPacketType(InputStream in) throws Exception {
+        int b1 = in.read();
+        if (b1 < 0) return -1;
+        int remLen = readRemainingLength(in);
+        for (int i = 0; i < remLen; i++) {
+            if (in.read() < 0) break;
+        }
+        return (b1 >> 4) & 0x0F;
+    }
 
-            if (isSyncData) {
-                SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-                prefs.edit().putString(KEY_PENDING_SYNC_JSON, msg).apply();
-            }
+    private int readRemainingLength(InputStream in) throws Exception {
+        int multiplier = 1;
+        int value = 0;
+        int encodedByte;
+        do {
+            encodedByte = in.read();
+            if (encodedByte < 0) throw new Exception("EOF");
+            value += (encodedByte & 127) * multiplier;
+            multiplier *= 128;
+        } while ((encodedByte & 128) != 0);
+        return value;
+    }
 
-            Intent b = new Intent(ACTION_SYNC_RECEIVED);
-            b.setPackage(getPackageName());
-            b.putExtra("payload", msg);
-            sendBroadcast(b);
-        } catch (Exception ignored) {}
+    private byte[] buildMqttConnectPacket(String clientId) throws Exception {
+        ByteArrayOutputStream varAndPayload = new ByteArrayOutputStream();
+        writeMqttString(varAndPayload, "MQTT");
+        varAndPayload.write(4); // Protocol level 3.1.1
+        varAndPayload.write(0x02); // Clean session
+        varAndPayload.write(0);
+        varAndPayload.write(120); // Keepalive 120s
+        writeMqttString(varAndPayload, clientId);
+        return wrapMqttPacket(0x10, varAndPayload.toByteArray());
+    }
+
+    private byte[] buildMqttSubscribePacket(int packetId, String[] topics) throws Exception {
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        body.write((packetId >> 8) & 0xFF);
+        body.write(packetId & 0xFF);
+        for (String t : topics) {
+            writeMqttString(body, t);
+            body.write(0); // QoS 0
+        }
+        return wrapMqttPacket(0x82, body.toByteArray());
+    }
+
+    private byte[] buildMqttPublishPacket(String topic, String payload, boolean retain) throws Exception {
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        writeMqttString(body, topic);
+        body.write(payload.getBytes(StandardCharsets.UTF_8));
+        return wrapMqttPacket(retain ? 0x31 : 0x30, body.toByteArray());
+    }
+
+    private void writeMqttString(ByteArrayOutputStream out, String s) throws Exception {
+        byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
+        out.write((bytes.length >> 8) & 0xFF);
+        out.write(bytes.length & 0xFF);
+        out.write(bytes);
+    }
+
+    private byte[] wrapMqttPacket(int headerByte, byte[] body) throws Exception {
+        ByteArrayOutputStream pkt = new ByteArrayOutputStream();
+        pkt.write(headerByte);
+        int x = body.length;
+        do {
+            int encodedByte = x % 128;
+            x /= 128;
+            if (x > 0) encodedByte |= 128;
+            pkt.write(encodedByte);
+        } while (x > 0);
+        pkt.write(body);
+        return pkt.toByteArray();
     }
 
     private void stopWorker() {
         running = false;
-        if (activeConn != null) {
-            try { activeConn.disconnect(); } catch (Exception ignored) {}
+        if (activeSocket != null) {
+            try { activeSocket.close(); } catch (Exception ignored) {}
+            activeSocket = null;
         }
         if (workerThread != null) {
             workerThread.interrupt();
             workerThread = null;
-        }
-        if (heartbeatThread != null) {
-            heartbeatThread.interrupt();
-            heartbeatThread = null;
         }
         releaseWakeLock();
     }

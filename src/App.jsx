@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import mqtt from 'mqtt';
 import {
   ClipboardPaste,
   Plus,
@@ -744,7 +745,7 @@ export default function App() {
       const now = Date.now();
       let active = 1; // include self
       for (const [pid, ts] of peersRef.current.entries()) {
-        if (pid !== deviceId && now - ts < 90000) active++;
+        if (pid !== deviceId && now - ts < 120000) active++;
       }
       setConnectedCount(active);
     }
@@ -802,6 +803,8 @@ export default function App() {
     return false;
   };
 
+  const mqttClientRef = useRef(null);
+
   const pushSyncSnapshot = async (customEntries) => {
     if (!syncEnabled || !cleanSyncTopic) return;
     try {
@@ -813,10 +816,9 @@ export default function App() {
         deletedIds: [...deletedIdsRef.current].slice(-200),
         categoryClearAt: categoryClearAtRef.current,
       });
-      await fetch(`https://ntfy.sh/${cleanSyncTopic}`, {
-        method: 'POST',
-        body,
-      });
+      if (mqttClientRef.current && mqttClientRef.current.connected) {
+        mqttClientRef.current.publish(`${cleanSyncTopic}/sync`, body, { retain: true, qos: 0 });
+      }
       setLastSyncTime(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }));
     } catch {
       // ignore offline push errors
@@ -826,25 +828,20 @@ export default function App() {
   const pullSyncHistory = async (showNotice = false) => {
     if (!cleanSyncTopic) return;
     try {
-      const res = await fetch(`https://ntfy.sh/${cleanSyncTopic}/json?poll=1&since=24h`);
-      const text = await res.text();
-      let updated = false;
-      for (const line of text.split('\n')) {
-        if (!line.trim()) continue;
-        try {
-          const evt = JSON.parse(line);
-          if (evt && evt.message) {
-            const payload = JSON.parse(evt.message);
-            if (mergeRemoteSyncPayload(payload)) updated = true;
-          }
-        } catch {
-          // ignore non-sync lines
+      if (mqttClientRef.current && mqttClientRef.current.connected) {
+        mqttClientRef.current.publish(
+          `${cleanSyncTopic}/dev/${deviceId}`,
+          JSON.stringify({ type: 'SUNNY_PING_V1', senderId: deviceId, sentAt: Date.now() }),
+          { retain: true, qos: 0 }
+        );
+        mqttClientRef.current.subscribe([`${cleanSyncTopic}/sync`, `${cleanSyncTopic}/dev/+`]);
+        if (syncEnabled) setSyncStatus('live');
+        if (showNotice) {
+          showToast(`🔄 सिंक रिफ्रेश हुआ (Connected: ${connectedCount})`);
         }
+        return;
       }
-      if (showNotice) {
-        showToast(updated ? '🔄 दूसरे फोन का नया डेटा सिंक हो गया ✓' : '✓ सभी फोन पहले से अप-टू-डेट हैं');
-      }
-      if (syncEnabled) setSyncStatus('live');
+      if (showNotice) showToast('कनेक्ट हो रहा है, कृपया 2 सेकंड रुकें');
     } catch {
       if (showNotice) showToast('इंटरनेट कनेक्शन जाँचें');
     }
@@ -900,58 +897,77 @@ export default function App() {
 
     pullSyncHistory(false);
 
-    const sendHeartbeat = async () => {
+    const sendHeartbeat = () => {
       try {
-        const res = await fetch(`https://ntfy.sh/${cleanSyncTopic}`, {
-          method: 'POST',
-          body: JSON.stringify({ type: 'SUNNY_PING_V1', senderId: deviceId, sentAt: Date.now() }),
-        });
-        if (res.ok) setSyncStatus('live');
+        if (mqttClientRef.current && mqttClientRef.current.connected) {
+          mqttClientRef.current.publish(
+            `${cleanSyncTopic}/dev/${deviceId}`,
+            JSON.stringify({ type: 'SUNNY_PING_V1', senderId: deviceId, sentAt: Date.now() }),
+            { retain: true, qos: 0 }
+          );
+          setSyncStatus('live');
+        }
       } catch {
         // ignore
       }
     };
-    sendHeartbeat();
+
+    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+      clientId: `sunny_web_${deviceId}_${Math.random().toString(16).slice(2, 6)}`,
+      clean: true,
+      reconnectPeriod: 3000,
+      connectTimeout: 10000,
+    });
+    mqttClientRef.current = client;
+
+    client.on('connect', () => {
+      setSyncStatus('live');
+      client.subscribe([`${cleanSyncTopic}/sync`, `${cleanSyncTopic}/dev/+`]);
+      sendHeartbeat();
+    });
+
+    client.on('reconnect', () => setSyncStatus('connecting'));
+    client.on('error', () => setSyncStatus('error'));
+
+    client.on('message', (_topic, messageBuf) => {
+      try {
+        const payload = JSON.parse(messageBuf.toString());
+        if (mergeRemoteSyncPayload(payload)) {
+          showToast('🟢 दूसरे फोन से नया डेटा सिंक हुआ');
+        }
+      } catch {
+        // ignore non-json messages
+      }
+    });
+
     const hbInterval = setInterval(() => {
       sendHeartbeat();
       const now = Date.now();
       let active = 1;
       for (const [pid, ts] of peersRef.current.entries()) {
-        if (pid !== deviceId && now - ts < 90000) active++;
+        if (pid !== deviceId && now - ts < 120000) active++;
       }
       setConnectedCount(active);
-    }, 20000);
+    }, 35000);
 
     const handleResumeSync = () => {
       if (document.visibilityState === 'visible') {
         sendHeartbeat();
-        pullSyncHistory(false);
       }
     };
     document.addEventListener('visibilitychange', handleResumeSync);
     window.addEventListener('focus', handleResumeSync);
 
-    const es = new EventSource(`https://ntfy.sh/${cleanSyncTopic}/sse`);
-    es.onopen = () => setSyncStatus('live');
-    es.onerror = () => setSyncStatus('error');
-    es.onmessage = (event) => {
-      try {
-        const wrapper = JSON.parse(event.data);
-        if (wrapper && wrapper.message) {
-          const payload = JSON.parse(wrapper.message);
-          if (mergeRemoteSyncPayload(payload)) {
-            showToast('🟢 दूसरे फोन से नया डेटा सिंक हुआ');
-          }
-        }
-      } catch {
-        // ignore keepalive/non-json events
-      }
-    };
     return () => {
       clearInterval(hbInterval);
       document.removeEventListener('visibilitychange', handleResumeSync);
       window.removeEventListener('focus', handleResumeSync);
-      es.close();
+      try {
+        client.end(true);
+      } catch {
+        // ignore
+      }
+      mqttClientRef.current = null;
       delete window.receiveSunnySyncPayload;
     };
   }, [syncEnabled, cleanSyncTopic]);

@@ -73,7 +73,7 @@ public class MainActivity extends BridgeActivity {
 
         @JavascriptInterface
         public void readClipboardIfNew() {
-            runOnUiThread(() -> checkSystemClipboardFallback());
+            runOnUiThread(() -> checkSystemClipboardFallback(false));
         }
 
         @JavascriptInterface
@@ -220,6 +220,8 @@ public class MainActivity extends BridgeActivity {
         handleIncomingIntent(intent);
     }
 
+    private boolean forceReadClipboardOnResume = false;
+
     @Override
     public void onResume() {
         super.onResume();
@@ -230,7 +232,7 @@ public class MainActivity extends BridgeActivity {
                 if (bgSync != null && !bgSync.isEmpty()) {
                     deliverSyncPayloadToWeb(bgSync);
                 }
-            }, 300);
+            }, 40);
         }
     }
 
@@ -240,8 +242,9 @@ public class MainActivity extends BridgeActivity {
         if (hasFocus && getBridge() != null && getBridge().getWebView() != null) {
             getBridge().getWebView().postDelayed(() -> {
                 deliverPendingClipToWeb();
-                checkSystemClipboardFallback();
-            }, 220);
+                checkSystemClipboardFallback(forceReadClipboardOnResume);
+                forceReadClipboardOnResume = false;
+            }, 30);
         }
     }
 
@@ -269,9 +272,14 @@ public class MainActivity extends BridgeActivity {
         if (text != null && !text.trim().isEmpty()) {
             storePendingClip(text);
             deliverPendingClipToWeb();
-        } else if (intent.getBooleanExtra("from_copy_trigger", false) &&
-                getBridge() != null && getBridge().getWebView() != null) {
-            getBridge().getWebView().postDelayed(this::checkSystemClipboardFallback, 250);
+        } else if (intent.getBooleanExtra("from_copy_trigger", false)) {
+            forceReadClipboardOnResume = true;
+            if (getBridge() != null && getBridge().getWebView() != null) {
+                getBridge().getWebView().postDelayed(() -> {
+                    checkSystemClipboardFallback(true);
+                    forceReadClipboardOnResume = false;
+                }, 40);
+            }
         }
     }
 
@@ -313,10 +321,10 @@ public class MainActivity extends BridgeActivity {
         }));
     }
 
-    private void checkSystemClipboardFallback() {
+    private void checkSystemClipboardFallback(boolean force) {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         if (!prefs.getBoolean(KEY_AUTO_ENABLED, true)) return;
-        if (prefs.getString(KEY_PENDING_CLIP, null) != null) return;
+        if (!force && prefs.getString(KEY_PENDING_CLIP, null) != null) return;
 
         ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         if (cm == null || !cm.hasPrimaryClip()) return;
@@ -329,7 +337,7 @@ public class MainActivity extends BridgeActivity {
         if (text.isEmpty()) return;
 
         String lastClip = prefs.getString(KEY_LAST_CLIP, "");
-        if (text.equals(lastClip)) return;
+        if (!force && text.equals(lastClip)) return;
         if (!text.matches("(?s).*\\d.*")) return;
 
         if (getBridge() == null || getBridge().getWebView() == null) return;

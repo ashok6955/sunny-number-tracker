@@ -11,7 +11,7 @@ import android.view.accessibility.AccessibilityNodeInfo;
 public class SunnyAccessibilityService extends AccessibilityService {
     private static final String PREFS_NAME = "sunny_bridge_prefs";
     private static final String KEY_AUTO_ENABLED = "auto_clipboard_enabled";
-    private static final long DEBOUNCE_MS = 1500L;
+    private static final long DEBOUNCE_MS = 350L;
 
     private ClipboardManager clipboardManager;
     private long lastLaunchMs = 0L;
