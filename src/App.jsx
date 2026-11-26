@@ -173,34 +173,49 @@ function tryParseHarufLine(line) {
  */
 function tryParseCrossingLine(line) {
   const isJodaCut = /\b(?:jc|j\.c|joda\s*cut|jode\s*cat|jodi\s*cut)\b/i.test(line);
-  const isFullCrossing = /\b(?:cwj|cwz|crocing|crossing)\b/i.test(line);
+  const hasExplicitCrossing = /\b(?:cwj|cwz|crocing|crossing)\b/i.test(line);
+  const hasHarufHint =
+    /\b(?:haruf|harf|harup|haroop|hrf|bahar|bahr|andar|ander|ab|ba)\b/i.test(line) ||
+    /(?:हरूफ|हरफ|बाहर|अंदर|अन्दर)/.test(line);
+  const stuckTokens = line.match(/\b\d{4,9}\b/g) || [];
+  const hasStuckCrossingDigits =
+    !hasHarufHint && stuckTokens.some((tok) => new Set(tok.split('')).size >= 2);
+  const isFullCrossing = hasExplicitCrossing || (!isJodaCut && hasStuckCrossingDigits);
   if (!isJodaCut && !isFullCrossing) return null;
 
-  let amt = 0;
-  let digitPart = line;
+  const normLine = line
+    .replace(/[₹]/g, ' ')
+    .replace(
+      /(\d+(?:\.\d+)?)\s*(?:into|intu|ento|intoo|rs\.?|inr|rupe)\s*[/\-.,]*\s*$/i,
+      ' into $1'
+    )
+    .trim();
 
-  const parenAmt = line.match(/\(\s*@?\s*(\d+(?:\.\d+)?)\s*(?:into|in|rs)?\s*\)/i);
-  const eqOrIntoAmt = line.match(
+  let amt = 0;
+  let digitPart = normLine;
+
+  const parenAmt = normLine.match(/\(\s*@?\s*(\d+(?:\.\d+)?)\s*(?:into|intu|ento|in|rs)?\s*\)/i);
+  const eqOrIntoAmt = normLine.match(
     /(?:=|into|intu|ento|in|rs|r|@|×|x)\s*[.=*:\s]*(\d+(?:\.\d+)?)/i
   );
-  const afterKwAmt = line.match(
+  const afterKwAmt = normLine.match(
     /\b(?:jc|j\.c|joda\s*cut|jode\s*cat|jodi\s*cut|cwj|cwz|crocing|crossing)\b\s*[.=*:\s]*(\d+(?:\.\d+)?)/i
   );
 
   if (parenAmt) {
     amt = parseFloat(parenAmt[1]);
-    digitPart = line.slice(0, parenAmt.index);
+    digitPart = normLine.slice(0, parenAmt.index);
   } else if (eqOrIntoAmt) {
     amt = parseFloat(eqOrIntoAmt[1]);
-    digitPart = line.slice(0, eqOrIntoAmt.index);
+    digitPart = normLine.slice(0, eqOrIntoAmt.index);
   } else if (afterKwAmt) {
     amt = parseFloat(afterKwAmt[1]);
-    digitPart = line.slice(0, afterKwAmt.index);
+    digitPart = normLine.slice(0, afterKwAmt.index);
   } else {
-    const trailingAmt = line.match(/(\d+(?:\.\d+)?)\s*$/);
+    const trailingAmt = normLine.match(/(\d+(?:\.\d+)?)\s*$/);
     if (trailingAmt) {
       amt = parseFloat(trailingAmt[1]);
-      digitPart = line.slice(0, trailingAmt.index);
+      digitPart = normLine.slice(0, trailingAmt.index);
     }
   }
 
