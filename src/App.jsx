@@ -322,7 +322,7 @@ function analyzeWhatsAppText(raw) {
         ' '
       )
       .replace(
-        /(?:^|[\s\d])(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shri\s*ganesh|db|delhi\s*bazar|gzb|ghaziabad)\s*$/i,
+        /(?:^|[\s\d])(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shri\s*ganesh|db|delhi\s*baza+r|gzb|ghaziabad)\s*$/i,
         (m) => (/^\d/.test(m) ? m[0] : ' ')
       )
       .trim();
@@ -533,9 +533,10 @@ function analyzeWhatsAppText(raw) {
       const num = normalizeJodiNumber(singleSpaceMatch[1]);
       const amt = parseFloat(singleSpaceMatch[2]);
       if (num !== null && amt > 0) {
+        const combined = [...pendingNumbers, num];
         pendingNumbers = [];
         pendingRawLines = [];
-        pushEntries([num], amt, separatePalatAmt ?? (hasSamePalat ? amt : 0));
+        pushEntries(combined, amt, separatePalatAmt ?? (hasSamePalat ? amt : 0));
         continue;
       }
     }
