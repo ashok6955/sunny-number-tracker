@@ -835,13 +835,13 @@ export default function App() {
         mqttClientRef.current.subscribe([`${cleanSyncTopic}/sync`, `${cleanSyncTopic}/dev/+`]);
         if (syncEnabled) setSyncStatus('live');
         if (showNotice) {
-          showToast(`🔄 सिंक रिफ्रेश हुआ (Connected: ${connectedCount})`);
+          showToast(`🔄 Sync refreshed (Connected: ${connectedCount})`);
         }
         return;
       }
       if (showNotice) showToast('कनेक्ट हो रहा है, कृपया 2 सेकंड रुकें');
     } catch {
-      if (showNotice) showToast('इंटरनेट कनेक्शन जाँचें');
+      if (showNotice) showToast('Check internet connection');
     }
   };
 
@@ -931,7 +931,7 @@ export default function App() {
       try {
         const payload = JSON.parse(messageBuf.toString());
         if (mergeRemoteSyncPayload(payload)) {
-          showToast('🟢 दूसरे फोन से नया डेटा सिंक हुआ');
+          showToast('🟢 New data synced from another phone');
         }
       } catch {
         // ignore non-json messages
@@ -1001,7 +1001,7 @@ export default function App() {
     return totals;
   }, [entries, activeCategory]);
 
-  // Highest to Lowest ranking ("सबसे मोटा" -> "उससे नीचे" -> "सबसे कम") in active category
+  // Highest to Lowest ranking ("सबसे मोटा" -> "उससे नीचे" -> "Lowest") in active category
   const { maxAmount, minAmount, highestNumbers, rankedList, tierByAmount } = useMemo(() => {
     const active = [];
     for (let i = 1; i <= 100; i++) {
@@ -1028,7 +1028,7 @@ export default function App() {
     uniqueAmounts.forEach((amt, idx) => {
       if (idx === 0) tierMap[amt] = 'top'; // सबसे मोटा (#1)
       else if (idx === uniqueAmounts.length - 1 && uniqueAmounts.length >= 2)
-        tierMap[amt] = 'lowest'; // सबसे कम
+        tierMap[amt] = 'lowest'; // Lowest
       else if (idx === 1) tierMap[amt] = 'second'; // उससे नीचे (#2)
       else if (idx === 2) tierMap[amt] = 'third'; // उससे नीचे (#3)
       else tierMap[amt] = 'mid';
@@ -1068,14 +1068,14 @@ export default function App() {
       setIsLocked(nextLock);
       showToast(
         nextLock
-          ? `🔒 ${cat} लॉक हो गया`
-          : `🔓 ${cat} अनलॉक हो गया — अब दूसरी कैटेगरी चुन सकते हैं`
+          ? `🔒 ${cat} Locked हो गया`
+          : `🔓 ${cat} अनLocked हो गया — अब दूसरी कैटेगरी चुन सकते हैं`
       );
       return;
     }
 
     if (isLocked) {
-      showToast(`🔒 ${activeCategory} लॉक है! पहले ${activeCategory} पर टैप करके अनलॉक करें`);
+      showToast(`🔒 ${activeCategory} Locked है! पहले ${activeCategory} पर टैप करके अनLocked करें`);
       return;
     }
 
@@ -1083,7 +1083,7 @@ export default function App() {
     setActiveCategory(cat);
     setIsLocked(true);
     setSelectedBox(null);
-    showToast(`🔒 ${cat} सेलेक्ट और लॉक हो गया`);
+    showToast(`🔒 ${cat} सेलेक्ट और Locked हो गया`);
   };
 
   // Shared helper to commit parsed entries into activeCategory
@@ -1109,11 +1109,11 @@ export default function App() {
 
     if (newItems.length === 1) {
       showToast(
-        `${sourceLabel}${activeCategory}: नंबर ${newItems[0].number} में ₹${newItems[0].amount} जुड़ा`
+        `${sourceLabel}${activeCategory}: Numbers ${newItems[0].number} में ₹${newItems[0].amount} जुड़ा`
       );
     } else {
       showToast(
-        `${sourceLabel}${activeCategory} में ${newItems.length} नंबर जुड़े (₹${addedTotal})`
+        `${sourceLabel}${activeCategory} में ${newItems.length} Numbers जुड़े (₹${addedTotal})`
       );
     }
     return true;
@@ -1129,7 +1129,7 @@ export default function App() {
       failedList.length > 0
         ? failedList
         : fallbackRaw && fallbackRaw.trim()
-        ? [{ rawLine: fallbackRaw.trim(), reason: 'पैटर्न समझ नहीं आया (0 नंबर जुड़े)' }]
+        ? [{ rawLine: fallbackRaw.trim(), reason: 'पैटर्न समझ नहीं आया (0 Numbers जुड़े)' }]
         : [];
     if (itemsToSave.length === 0) return 0;
 
@@ -1193,16 +1193,16 @@ export default function App() {
         });
       }
       if (showNotice) {
-        showToast(remoteList.length > 0 ? `🔄 ${remoteList.length} फेल पैटर्न चारों फोन से सिंक हुए` : 'कोई नया फेल पैटर्न नहीं मिला');
+        showToast(remoteList.length > 0 ? `🔄 ${remoteList.length} Failed Patterns चारों फोन से सिंक हुए` : 'कोई नया Failed Patterns नहीं मिला');
       }
     } catch {
-      if (showNotice) showToast('इंटरनेट कनेक्शन जाँचें');
+      if (showNotice) showToast('Check internet connection');
     }
   };
 
   const handleCopyFailedPatterns = async () => {
     if (failedPatterns.length === 0) {
-      showToast('कोई फेल पैटर्न नहीं है');
+      showToast('कोई Failed Patterns नहीं है');
       return;
     }
     const report = [
@@ -1217,7 +1217,7 @@ export default function App() {
       await navigator.clipboard.writeText(report);
       setCopiedKey('FAILED_ALL');
       setTimeout(() => setCopiedKey(null), 1800);
-      showToast('फेल पैटर्न हिस्ट्री कॉपी हो गई — अब चैट में पेस्ट कर दें');
+      showToast('Failed Patterns History कॉपी हो गई — अब चैट में पेस्ट कर दें');
     } catch {
       showToast('कॉपी नहीं हो सका');
     }
@@ -1244,7 +1244,7 @@ export default function App() {
         return;
       }
       if (savedCount > 0) {
-        showToast('पैटर्न एक्सेप्ट नहीं हुआ — फेल हिस्ट्री में सेव हो गया (Tools देखें)');
+        showToast('पैटर्न एक्सेप्ट नहीं हुआ — फेल History में सेव हो गया (Tools देखें)');
       } else {
         showToast('सही फॉर्मेट लिखें: जैसे 23 100 या 23=50');
       }
@@ -1258,7 +1258,7 @@ export default function App() {
     const handleIncomingText = (text) => {
       if (!autoPasteEnabled) return 'LOCKED';
       if (typeof text === 'string' && text.trim()) {
-        openConfirmForText(text, 'ऑटो ✓ ', true);
+        openConfirmForText(text, 'Auto ✓ ', true);
         return 'OK';
       }
       return 'EMPTY';
@@ -1323,7 +1323,7 @@ export default function App() {
     if (failed.length > 0) {
       const savedCount = recordFailedPatterns(failed, '');
       if (savedCount > 0) {
-        showToast(`${sourceLabel}${results.length} नंबर जुड़े (${savedCount} लाइन फेल हिस्ट्री में सेव)`);
+        showToast(`${sourceLabel}${results.length} Numbers जुड़े (${savedCount} लाइन फेल History में सेव)`);
       }
     }
     setPendingConfirm(null);
@@ -1350,7 +1350,7 @@ export default function App() {
     );
     setPendingConfirm(null);
     setInputText('');
-    showToast('⚠️ फेल पैटर्न हिस्ट्री में सेव हो गया');
+    showToast('⚠️ Failed Patterns History में सेव हो गया');
     if (fromBridge && window.SunnyNativeBridge?.returnToPreviousApp) {
       setTimeout(() => window.SunnyNativeBridge.returnToPreviousApp(), 250);
     }
@@ -1368,13 +1368,13 @@ export default function App() {
   // Paste button: if input box already has pasted text, commit it; otherwise paste clipboard into box first (no auto-add on Ctrl+V)
   const handlePasteAndAutoAdd = async () => {
     if (inputText.trim()) {
-      processInputSubmission('पेस्ट ✓ ');
+      processInputSubmission('Pasted ✓ ');
       return;
     }
     try {
       const text = await navigator.clipboard.readText();
       if (!text || !text.trim()) {
-        showToast('क्लिपबोर्ड खाली है');
+        showToast('Clipboard is empty');
         return;
       }
       setInputText(text);
@@ -1401,7 +1401,7 @@ export default function App() {
       },
     ]);
     setQuickBoxAmount('');
-    showToast(`${activeCategory}: नंबर ${selectedBox} में ₹${amt} जुड़ा`);
+    showToast(`${activeCategory}: Numbers ${selectedBox} में ₹${amt} जुड़ा`);
   };
 
   const handleDeleteEntry = (id) => {
@@ -1424,7 +1424,7 @@ export default function App() {
     deletedIdsRef.current.add(removed.id);
     persistSyncMeta();
     setEntries((prev) => prev.filter((_, i) => i !== targetIndex));
-    showToast(`Undo: नंबर ${removed.number} (₹${removed.amount})`);
+    showToast(`Undo: Numbers ${removed.number} (₹${removed.amount})`);
   };
 
   const handleClearCategory = () => {
@@ -1497,7 +1497,7 @@ export default function App() {
       await navigator.clipboard.writeText(lines.join('\n'));
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
-      showToast('समरी कॉपी हो गई');
+      showToast('Summary copied');
     } catch {
       showToast('कॉपी नहीं हो सका');
     }
@@ -1576,7 +1576,7 @@ export default function App() {
       hour: '2-digit',
       minute: '2-digit',
     });
-    ctx.fillText(`तारीख: ${nowStr}`, 44, 90);
+    ctx.fillText(`Date: ${nowStr}`, 44, 90);
 
     ctx.textAlign = 'right';
     ctx.fillStyle = '#38bdf8';
@@ -1663,16 +1663,16 @@ export default function App() {
 
     ctx.fillStyle = '#cbd5e1';
     ctx.font = 'bold 22px sans-serif';
-    ctx.fillText(`नाम: ${(chartOwnerName || 'Sunny').trim()}`, 46, footY + 38);
+    ctx.fillText(`Name: ${(chartOwnerName || 'Sunny').trim()}`, 46, footY + 38);
     ctx.fillStyle = '#94a3b8';
     ctx.font = '15px sans-serif';
-    ctx.fillText(`कैटेगरी: ${activeCategory} • 01 से 100 चार्ट`, 46, footY + 66);
+    ctx.fillText(`Category: ${activeCategory} • 01 से 100 चार्ट`, 46, footY + 66);
 
     ctx.textAlign = 'right';
     ctx.fillStyle = '#fbbf24';
     ctx.font = 'bold 34px sans-serif';
     ctx.fillText(
-      `कुल टोटल: ₹${categoryTotals[activeCategory].toLocaleString('en-IN')}`,
+      `Total: ₹${categoryTotals[activeCategory].toLocaleString('en-IN')}`,
       W - 46,
       footY + 54
     );
@@ -1694,7 +1694,7 @@ export default function App() {
     a.href = url;
     a.download = `${activeCategory}-01-100-chart.png`;
     a.click();
-    showToast(`${activeCategory} चार्ट इमेज डाउनलोड हो गई`);
+    showToast(`${activeCategory} चार्ट इमेज Download हो गई`);
   };
 
   const handleShareChartImage = async () => {
@@ -1708,7 +1708,7 @@ export default function App() {
         await navigator.share({
           files: [file],
           title: `${activeCategory} 01-100 चार्ट`,
-          text: `${activeCategory} कुल टोटल: ₹${categoryTotals[activeCategory].toLocaleString('en-IN')} — ${chartOwnerName}`,
+          text: `${activeCategory} Total: ₹${categoryTotals[activeCategory].toLocaleString('en-IN')} — ${chartOwnerName}`,
         });
         showToast('चार्ट इमेज शेयर हो गई');
         return;
@@ -1772,7 +1772,7 @@ export default function App() {
                   whiteSpace: 'nowrap',
                 }}
               >
-                नंबर ट्रैकर
+                Number Tracker
               </h1>
               <span
                 style={{
@@ -1790,7 +1790,7 @@ export default function App() {
                 }}
               >
                 {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
-                {isLocked ? `${activeCategory} लॉक` : 'अनलॉक'}
+                {isLocked ? `${activeCategory} Locked` : 'अनLocked'}
               </span>
             </div>
 
@@ -1875,7 +1875,7 @@ export default function App() {
             }}
           >
             <p style={{ fontSize: '11px', color: t.textSecondary, whiteSpace: 'nowrap' }}>
-              ग्रैंड टोटल:{' '}
+              Grand Total:{' '}
               <strong style={{ color: t.accent }}>
                 ₹{grandTotal.toLocaleString('en-IN')}
               </strong>{' '}
@@ -1891,11 +1891,11 @@ export default function App() {
                   setAutoPasteEnabled(next);
                   showToast(
                     next
-                      ? '🔓 ऑटो-कॉपी ON — कॉपी किया नंबर अपने-आप कन्फ़र्म दिखेगा'
+                      ? '🔓 ऑटो-कॉपी ON — कॉपी किया Numbers अपने-आप Confirm दिखेगा'
                       : '🔒 ऑटो-कॉपी OFF — अब कॉपी डेटा अपने-आप नहीं आएगा'
                   );
                 }}
-                title="ऑटो-कॉपी चालू/बंद करें"
+                title="ऑटो-कॉपी चालू/Close"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1916,7 +1916,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setToolsView('entry_history')}
-                title="सभी एंट्री की हिस्ट्री देखें व गलत एंट्री हटाएं"
+                title="सभी एंट्री की History देखें व गलत एंट्री Delete"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1933,11 +1933,11 @@ export default function App() {
                 }}
               >
                 <History size={13} />
-                हिस्ट्री
+                History
               </button>
               <button
                 onClick={() => setToolsView('menu')}
-                title="कैटेगरी टूल्स खोलें"
+                title="कैटेगरी Tools खोलें"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1954,7 +1954,7 @@ export default function App() {
                 }}
               >
                 <Wrench size={13} color={t.accent} />
-                मेनू
+                Menu
               </button>
             </div>
           </div>
@@ -2059,7 +2059,7 @@ export default function App() {
                 handleAddFromInput();
               }
             }}
-            placeholder="यहाँ पेस्ट करें..."
+            placeholder="Paste here..."
             style={{
               flex: 1,
               background: t.inputBg,
@@ -2077,7 +2077,7 @@ export default function App() {
           <button
             type="button"
             onClick={handlePasteAndAutoAdd}
-            title="WhatsApp से पेस्ट करके तुरंत जोड़ें"
+            title="WhatsApp से पेस्ट करके तुरंत Add"
             style={{
               background: '#0284c7',
               border: 'none',
@@ -2112,11 +2112,11 @@ export default function App() {
             }}
           >
             <Plus size={15} />
-            जोड़ें
+            Add
           </button>
         </form>
 
-        {/* Live Tier Summary Strip (सबसे मोटा -> उससे नीचे -> सबसे कम) */}
+        {/* Live Tier Summary Strip (सबसे मोटा -> उससे नीचे -> Lowest) */}
         {rankedList.length > 0 && (
           <div
             style={{
@@ -2140,7 +2140,7 @@ export default function App() {
 
               const chips = [
                 {
-                  label: '👑 सबसे मोटा',
+                  label: '👑 Highest',
                   item: first,
                   bg: t.accentSoft,
                   border: t.accent,
@@ -2162,7 +2162,7 @@ export default function App() {
                 },
                 lowest &&
                   lowest.amount !== first.amount && {
-                    label: 'सबसे कम',
+                    label: 'Lowest',
                     item: lowest,
                     bg: t.cardBg,
                     border: t.cardBorder,
@@ -2318,7 +2318,7 @@ export default function App() {
                   textTransform: 'uppercase',
                 }}
               >
-                {activeCategory} कुल टोटल
+                {activeCategory} Total
               </div>
               <div
                 style={{
@@ -2340,7 +2340,7 @@ export default function App() {
                   color: t.textSecondary,
                 }}
               >
-                सभी 6 कैटेगरी (Grand)
+                All 6 Categories (Grand)
               </div>
               <div
                 style={{
@@ -2359,7 +2359,7 @@ export default function App() {
           <div style={{ display: 'flex', gap: '6px' }}>
             <button
               onClick={handleUndoLast}
-              title="आखिरी एंट्री हटाएं (Undo)"
+              title="आखिरी एंट्री Delete (Undo)"
               style={{
                 flex: 1,
                 background: t.inputBg,
@@ -2381,7 +2381,7 @@ export default function App() {
             </button>
             <button
               onClick={handleCopySummary}
-              title="समरी कॉपी करें"
+              title="समरी Copy"
               style={{
                 flex: 1,
                 background: t.inputBg,
@@ -2403,7 +2403,7 @@ export default function App() {
             </button>
             <button
               onClick={handleClearCategory}
-              title={`${activeCategory} का सारा डेटा क्लियर करें`}
+              title={`${activeCategory} का सारा डेटा Clear`}
               style={{
                 flex: 1.2,
                 background: 'rgba(239, 68, 68, 0.16)',
@@ -2458,7 +2458,7 @@ export default function App() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Trash2 size={20} color="#ef4444" />
                 <h3 style={{ fontSize: '16px', fontWeight: 800, color: t.textPrimary }}>
-                  {activeCategory} का डेटा क्लियर करें?
+                  {activeCategory} का डेटा Clear?
                 </h3>
               </div>
               <p style={{ fontSize: '13px', color: t.textSecondary, lineHeight: 1.45 }}>
@@ -2483,7 +2483,7 @@ export default function App() {
                     cursor: 'pointer',
                   }}
                 >
-                  नहीं (रद्द करें)
+                  नहीं (Cancel)
                 </button>
                 <button
                   onClick={confirmClearCategory}
@@ -2499,7 +2499,7 @@ export default function App() {
                     cursor: 'pointer',
                   }}
                 >
-                  हाँ, {activeCategory} क्लियर करें
+                  हाँ, {activeCategory} Clear
                 </button>
               </div>
             </div>
@@ -2572,7 +2572,7 @@ export default function App() {
                   >
                     <div>
                       <h2 style={{ fontSize: '16px', fontWeight: 700, color: t.textPrimary }}>
-                        🛠️ {activeCategory} — टूल्स
+                        🛠️ {activeCategory} — Tools
                       </h2>
                       <p style={{ fontSize: '11px', color: t.textSecondary }}>
                         अपने काम के लिए टूल चुनें
@@ -2610,10 +2610,10 @@ export default function App() {
                         <Flame size={20} color="#fbbf24" />
                         <div>
                           <div style={{ fontSize: '14px', fontWeight: 800, color: '#fbbf24' }}>
-                            मोटी जोड़ी (बड़े से छोटा)
+                            Top Jodis (High to Low)
                           </div>
                           <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '2px' }}>
-                            सबसे मोटी से सबसे कम जोड़ी देखें व कॉपी करें
+                            सबसे मोटी से Lowest जोड़ी देखें व Copy
                           </div>
                         </div>
                       </div>
@@ -2648,10 +2648,10 @@ export default function App() {
                       <ImageIcon size={18} color="#38bdf8" />
                       <div>
                         <div style={{ fontSize: '13px', fontWeight: 700, color: '#38bdf8' }}>
-                          01–100 चार्ट इमेज बनाएं व शेयर करें
+                          Create & Share 01–100 Chart Image
                         </div>
                         <div style={{ fontSize: '11px', color: t.textSecondary }}>
-                          नीचे टोटल और नाम के साथ पूरी HD इमेज डाउनलोड/शेयर करें
+                          Download or share HD chart image with total & name
                         </div>
                       </div>
                     </button>
@@ -2674,10 +2674,10 @@ export default function App() {
                         <Wifi size={18} color={syncEnabled ? '#10b981' : '#38bdf8'} />
                         <div>
                           <div style={{ fontSize: '13px', fontWeight: 700, color: syncEnabled ? '#6ee7b7' : '#38bdf8' }}>
-                            4-फोन फ्री लाइव सिंक (₹0 खर्च)
+                            4-Phone Free Live Sync (₹0)
                           </div>
                           <div style={{ fontSize: '11px', color: t.textSecondary }}>
-                            एक फोन में जोड़ें और चारों फोनों में तुरंत देखें
+                            एक फोन में Add और चारों फोनों में तुरंत देखें
                           </div>
                         </div>
                       </div>
@@ -2713,10 +2713,10 @@ export default function App() {
                         <History size={18} color={t.accent} />
                         <div>
                           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>
-                            सभी एंट्री हिस्ट्री (गलत एंट्री हटाएं)
+                            सभी एंट्री History (गलत एंट्री Delete)
                           </div>
                           <div style={{ fontSize: '11px', color: t.textSecondary }}>
-                            समय के साथ हर एंट्री देखें और गलत एंट्री डिलीट करें
+                            View every entry with time & delete wrong ones
                           </div>
                         </div>
                       </div>
@@ -2752,7 +2752,7 @@ export default function App() {
                         <AlertTriangle size={18} color={failedPatterns.length > 0 ? '#fb7185' : t.textSecondary} />
                         <div>
                           <div style={{ fontSize: '13px', fontWeight: 700, color: failedPatterns.length > 0 ? '#fb7185' : t.textPrimary }}>
-                            फेल पैटर्न हिस्ट्री (कॉपी करें)
+                            Failed Patterns History (Copy)
                           </div>
                           <div style={{ fontSize: '11px', color: t.textSecondary }}>
                             जो पैटर्न ऐड न हो सकें, उन्हें कॉपी करके भेजें
@@ -2802,7 +2802,7 @@ export default function App() {
                           📱 ऑटो-पेस्ट डेमो देखें (Live Demo)
                         </div>
                         <div style={{ fontSize: '11px', color: t.textSecondary }}>
-                          देखें WhatsApp पर Copy करते ही कन्फ़र्मेशन लिस्ट कैसे खुलेगी
+                          देखें WhatsApp पर Copy करते ही Confirmेशन लिस्ट कैसे खुलेगी
                         </div>
                       </div>
                     </button>
@@ -2849,7 +2849,7 @@ export default function App() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <button
                         onClick={() => setToolsView('menu')}
-                        title="टूल्स पर वापस जाएं"
+                        title="Tools पर Back जाएं"
                         style={{
                           background: t.inputBg,
                           border: `1px solid ${t.cardBorder}`,
@@ -2865,7 +2865,7 @@ export default function App() {
                       </button>
                       <div>
                         <h2 style={{ fontSize: '15px', fontWeight: 700, color: t.textPrimary }}>
-                          🔥 {activeCategory} — मोटी जोड़ी
+                          🔥 {activeCategory} — Top Jodis
                         </h2>
                         <p style={{ fontSize: '11px', color: t.textSecondary }}>
                           कुल: ₹{categoryTotals[activeCategory].toLocaleString('en-IN')} ({filteredRankedList.length}
@@ -3010,7 +3010,7 @@ export default function App() {
                           rowBorder = '#38bdf8';
                           badgeColor = '#38bdf8';
                         } else if (tier === 'lowest') {
-                          badgeLabel = 'सबसे कम';
+                          badgeLabel = 'Lowest';
                           rowBg = 'rgba(225, 29, 72, 0.14)';
                           rowBorder = '#f43f5e';
                           badgeColor = '#fb7185';
@@ -3089,7 +3089,7 @@ export default function App() {
                                 </span>
                                 <button
                                   onClick={() => handleCopySingleJodi(item.number, item.amount)}
-                                  title="यह जोड़ी कॉपी करें"
+                                  title="यह जोड़ी Copy"
                                   style={{
                                     background: isRowCopied ? t.accent : t.cardBg,
                                     border: `1px solid ${isRowCopied ? t.accent : t.cardBorder}`,
@@ -3204,7 +3204,7 @@ export default function App() {
                       {copiedKey === 'ALL' ? <Check size={16} /> : <Copy size={16} />}
                       {copiedKey === 'ALL'
                         ? 'सारी जोड़ी कॉपी हो गई ✓'
-                        : `All Text कॉपी करें (${filteredRankedList.length} जोड़ी)`}
+                        : `All Text Copy (${filteredRankedList.length} जोड़ी)`}
                     </button>
                   )}
                 </>
@@ -3220,7 +3220,7 @@ export default function App() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <button
                         onClick={() => setToolsView('menu')}
-                        title="टूल्स पर वापस जाएं"
+                        title="Tools पर Back जाएं"
                         style={{
                           background: t.inputBg,
                           border: `1px solid ${t.cardBorder}`,
@@ -3239,7 +3239,7 @@ export default function App() {
                           🖼️ {activeCategory} — 01 से 100 चार्ट इमेज
                         </h2>
                         <p style={{ fontSize: '11px', color: t.textSecondary }}>
-                          नीचे टोटल व नाम के साथ शेयर या डाउनलोड करें
+                          नीचे टोटल व नाम के साथ शेयर या Download करें
                         </p>
                       </div>
                     </div>
@@ -3259,13 +3259,13 @@ export default function App() {
                   {/* Owner / Party Name for Footer */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <label style={{ fontSize: '11px', color: t.textSecondary, whiteSpace: 'nowrap' }}>
-                      इमेज पर नाम:
+                      इमेज पर Name:
                     </label>
                     <input
                       type="text"
                       value={chartOwnerName}
                       onChange={(e) => setChartOwnerName(e.target.value)}
-                      placeholder="अपना या पार्टी का नाम लिखें"
+                      placeholder="Enter your or party name"
                       style={{
                         flex: 1,
                         background: t.inputBg,
@@ -3321,7 +3321,7 @@ export default function App() {
                       }}
                     >
                       <Share2 size={15} />
-                      शेयर करें
+                      Share
                     </button>
                     <button
                       type="button"
@@ -3343,7 +3343,7 @@ export default function App() {
                       }}
                     >
                       <Download size={15} />
-                      डाउनलोड PNG
+                      Download PNG
                     </button>
                   </div>
                 </>
@@ -3360,7 +3360,7 @@ export default function App() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <button
                         onClick={() => setToolsView('menu')}
-                        title="टूल्स पर वापस जाएं"
+                        title="Tools पर Back जाएं"
                         style={{
                           background: t.inputBg,
                           border: `1px solid ${t.cardBorder}`,
@@ -3412,7 +3412,7 @@ export default function App() {
                     }}
                   >
                     <div style={{ fontSize: '12px', color: t.textSecondary, lineHeight: '1.45' }}>
-                      अपने सभी फोनों (4 या ज़्यादा) में एक ही <strong>गुप्त कोड (Sync Code)</strong> डालकर ON करें। किसी भी फोन पर नंबर जुड़ते ही चारों फोनों में तुरंत अपडेट हो जाएगा — बिल्कुल मुफ़्त!
+                      अपने सभी फोनों (4 या ज़्यादा) में एक ही <strong>गुप्त कोड (Sync Code)</strong> डालकर ON करें। किसी भी फोन पर Numbers जुड़ते ही चारों फोनों में तुरंत अपडेट हो जाएगा — बिल्कुल मुफ़्त!
                     </div>
 
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -3420,7 +3420,7 @@ export default function App() {
                         type="text"
                         value={syncRoomId}
                         onChange={(e) => setSyncRoomId(e.target.value)}
-                        placeholder="गुप्त कोड डालें (जैसे sunny-9988)"
+                        placeholder="Enter room code (e.g. sunny-live-8899)"
                         style={{
                           flex: 1,
                           background: t.cardBg,
@@ -3488,7 +3488,7 @@ export default function App() {
                           cursor: 'pointer',
                         }}
                       >
-                        {syncEnabled ? 'सिंक बंद करें (OFF)' : '✅ लाइव सिंक चालू करें'}
+                        {syncEnabled ? 'सिंक Close (OFF)' : '✅ लाइव सिंक चालू करें'}
                       </button>
                       <button
                         type="button"
@@ -3533,7 +3533,7 @@ export default function App() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <button
                         onClick={() => setToolsView('menu')}
-                        title="टूल्स पर वापस जाएं"
+                        title="Tools पर Back जाएं"
                         style={{
                           background: t.inputBg,
                           border: `1px solid ${t.cardBorder}`,
@@ -3549,7 +3549,7 @@ export default function App() {
                       </button>
                       <div>
                         <h2 style={{ fontSize: '15px', fontWeight: 700, color: '#fb7185' }}>
-                          ⚠️ फेल पैटर्न हिस्ट्री ({failedPatterns.length})
+                          ⚠️ Failed Patterns History ({failedPatterns.length})
                         </h2>
                         <p style={{ fontSize: '11px', color: t.textSecondary }}>
                           इन्हें कॉपी करके भेजें ताकि हम तुरंत फिक्स कर सकें
@@ -3560,7 +3560,7 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => pullFailedBackup(true)}
-                        title="चारों फोनों के फेल पैटर्न एक जगह लाएं"
+                        title="चारों फोनों के Failed Patterns एक जगह लाएं"
                         style={{
                           background: 'rgba(2, 132, 199, 0.16)',
                           border: '1px solid #38bdf8',
@@ -3579,7 +3579,7 @@ export default function App() {
                           type="button"
                           onClick={() => {
                             setFailedPatterns([]);
-                            showToast('फेल पैटर्न हिस्ट्री साफ़ हो गई');
+                            showToast('Failed Patterns History साफ़ हो गई');
                           }}
                           style={{
                             background: 'rgba(225, 29, 72, 0.14)',
@@ -3628,7 +3628,7 @@ export default function App() {
                           padding: '24px 0',
                         }}
                       >
-                        अभी कोई भी फेल पैटर्न नहीं है ✓
+                        अभी कोई भी Failed Patterns नहीं है ✓
                       </p>
                     ) : (
                       failedPatterns.map((fp) => (
@@ -3693,8 +3693,8 @@ export default function App() {
                     >
                       {copiedKey === 'FAILED_ALL' ? <Check size={16} /> : <Copy size={16} />}
                       {copiedKey === 'FAILED_ALL'
-                        ? 'फेल हिस्ट्री कॉपी हो गई ✓'
-                        : `सारी फेल हिस्ट्री कॉपी करें (${failedPatterns.length})`}
+                        ? 'फेल History कॉपी हो गई ✓'
+                        : `सारी फेल History Copy (${failedPatterns.length})`}
                     </button>
                   )}
                 </>
@@ -3711,7 +3711,7 @@ export default function App() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <button
                         onClick={() => setToolsView('menu')}
-                        title="टूल्स पर वापस जाएं"
+                        title="Tools पर Back जाएं"
                         style={{
                           background: t.inputBg,
                           border: `1px solid ${t.cardBorder}`,
@@ -3727,7 +3727,7 @@ export default function App() {
                       </button>
                       <div>
                         <h2 style={{ fontSize: '15px', fontWeight: 700, color: t.textPrimary }}>
-                          📜 {activeCategory} — एंट्री हिस्ट्री ({categoryEntries.length})
+                          📜 {activeCategory} — एंट्री History ({categoryEntries.length})
                         </h2>
                         <p style={{ fontSize: '11px', color: t.textSecondary }}>
                           गलत एंट्री हटाने पर मेन ग्रिड व टोटल से भी हट जाएगी
@@ -3807,7 +3807,7 @@ export default function App() {
                                   `${activeCategory}: जोड़ी ${String(ent.number).padStart(2, '0')} (₹${ent.amount}) हट गई`
                                 );
                               }}
-                              title="यह एंट्री हटाएं"
+                              title="यह एंट्री Delete"
                               style={{
                                 background: 'rgba(225, 29, 72, 0.14)',
                                 border: '1px solid #f43f5e',
@@ -3823,7 +3823,7 @@ export default function App() {
                               }}
                             >
                               <Trash2 size={13} />
-                              हटाएं
+                              Delete
                             </button>
                           </div>
                         );
@@ -3874,7 +3874,7 @@ export default function App() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <History size={18} color="#0284c7" />
                   <h2 style={{ fontSize: '16px', fontWeight: 700, color: t.textPrimary }}>
-                    {activeCategory} — नंबर {String(selectedBox).padStart(2, '0')}
+                    {activeCategory} — Numbers {String(selectedBox).padStart(2, '0')}
                   </h2>
                   <span
                     style={{
@@ -3911,7 +3911,7 @@ export default function App() {
                   min="1"
                   value={quickBoxAmount}
                   onChange={(e) => setQuickBoxAmount(e.target.value)}
-                  placeholder="अमाउंट डालें (जैसे 50)"
+                  placeholder="Enter amount (e.g. 50)"
                   autoFocus
                   style={{
                     flex: 1,
@@ -3936,7 +3936,7 @@ export default function App() {
                     cursor: 'pointer',
                   }}
                 >
-                  + जोड़ें
+                  + Add
                 </button>
               </form>
 
@@ -3959,7 +3959,7 @@ export default function App() {
                       padding: '16px 0',
                     }}
                   >
-                    अभी इस नंबर पर कोई एंट्री नहीं है।
+                    अभी इस Numbers पर कोई एंट्री नहीं है।
                   </p>
                 ) : (
                   selectedBoxEntries.map((item) => (
@@ -4059,7 +4059,7 @@ export default function App() {
                     </button>
                   </div>
                   <p style={{ fontSize: '12px', color: t.textSecondary }}>
-                    यह पर्ची फेल पैटर्न हिस्ट्री में सेव हो गई है।{' '}
+                    यह पर्ची Failed Patterns History में सेव हो गई है।{' '}
                     <strong style={{ color: '#fbbf24' }}>
                       {failCountdown} सेकंड में अपने-आप बंद हो जाएगा...
                     </strong>
@@ -4096,7 +4096,7 @@ export default function App() {
                       cursor: 'pointer',
                     }}
                   >
-                    ठीक है (वापस चैट पर जाएं)
+                    ठीक है (Back चैट पर जाएं)
                   </button>
                 </div>
               </div>
@@ -4140,7 +4140,7 @@ export default function App() {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <h2 style={{ fontSize: '15px', fontWeight: 800, color: t.textPrimary }}>
-                    ✅ {activeCategory} में जोड़ने की पुष्टि करें
+                    ✅ {activeCategory} — Confirm Add
                   </h2>
                   <button
                     onClick={handleCancelPendingAdd}
@@ -4169,7 +4169,7 @@ export default function App() {
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '12px', color: '#cbd5e1', fontWeight: 600 }}>
-                      इस मैसेज का टोटल ({pendingConfirm.results.length} नंबर):
+                      Message Total ({pendingConfirm.results.length} numbers):
                     </span>
                     <span style={{ fontSize: '18px', fontWeight: 800, color: '#fbbf24' }}>
                       ₹{msgTotal.toLocaleString('en-IN')}
@@ -4186,8 +4186,8 @@ export default function App() {
                         color: totalMatches ? '#6ee7b7' : '#fb7185',
                       }}
                     >
-                      <span>कस्टमर का लिखा टोटल: ₹{declaredTotal.toLocaleString('en-IN')}</span>
-                      <span>{totalMatches ? '✓ टोटल बराबर है' : '⚠️ टोटल अलग है'}</span>
+                      <span>Customer Total: ₹{declaredTotal.toLocaleString('en-IN')}</span>
+                      <span>{totalMatches ? '✓ Total Matched' : '⚠️ Total Mismatch'}</span>
                     </div>
                   )}
                   <div
@@ -4202,7 +4202,7 @@ export default function App() {
                       marginTop: '2px',
                     }}
                   >
-                    <span>{activeCategory} गेम टोटल (जुड़ने के बाद):</span>
+                    <span>{activeCategory} Game Total (After Add):</span>
                     <strong style={{ color: '#38bdf8' }}>
                       ₹{currentCatTotal.toLocaleString('en-IN')} → ₹{nextCatTotal.toLocaleString('en-IN')}
                     </strong>
@@ -4220,7 +4220,7 @@ export default function App() {
                       padding: '6px 9px',
                     }}
                   >
-                    ⚠️ {pendingConfirm.failed.length} लाइन समझ नहीं आई (फेल हिस्ट्री में सेव होगी)
+                    ⚠️ {pendingConfirm.failed.length} लाइन समझ नहीं आई (फेल History में सेव होगी)
                   </div>
                 )}
 
@@ -4270,7 +4270,7 @@ export default function App() {
                       cursor: 'pointer',
                     }}
                   >
-                    रद्द करें
+                    Cancel
                   </button>
                   <button
                     type="button"
@@ -4287,7 +4287,7 @@ export default function App() {
                       cursor: 'pointer',
                     }}
                   >
-                    ⚠️ गलत जुड़ा
+                    ⚠️ Wrong
                   </button>
                   <button
                     type="button"
@@ -4304,7 +4304,7 @@ export default function App() {
                       cursor: 'pointer',
                     }}
                   >
-                    कन्फ़र्म (₹{msgTotal.toLocaleString('en-IN')})
+                    Confirm (₹{msgTotal.toLocaleString('en-IN')})
                   </button>
                 </div>
               </div>

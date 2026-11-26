@@ -382,7 +382,7 @@ public class SunnySyncService extends Service {
                 .setContentText(text)
                 .setOngoing(true)
                 .setContentIntent(pi)
-                .addAction(R.mipmap.ic_launcher, "📋 पेस्ट करें", pi)
+                .addAction(R.mipmap.ic_launcher, "📋 Paste", pi)
                 .build();
     }
 
