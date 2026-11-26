@@ -828,12 +828,14 @@ export default function App() {
 
   const persistSyncMeta = () => {
     try {
-      localStorage.setItem('sunny_tracker_deleted_ids_v1', JSON.stringify([...deletedIdsRef.current].slice(-300)));
+      localStorage.setItem('sunny_tracker_deleted_ids_v1', JSON.stringify([...deletedIdsRef.current].slice(-2000)));
       localStorage.setItem('sunny_tracker_cat_clear_at_v1', JSON.stringify(categoryClearAtRef.current));
     } catch {
       // ignore
     }
   };
+
+  const pendingPushRef = useRef(false);
 
   const mergeRemoteSyncPayload = (payload) => {
     if (!payload) return false;
@@ -877,11 +879,15 @@ export default function App() {
     for (const item of entriesRef.current) {
       byId.set(item.id, item);
     }
+    const remoteIds = new Set();
     const prevCount = byId.size;
     if (Array.isArray(payload.entries)) {
       for (const item of payload.entries) {
-        if (item && item.id && !byId.has(item.id)) {
-          byId.set(item.id, item);
+        if (item && item.id) {
+          remoteIds.add(item.id);
+          if (!byId.has(item.id)) {
+            byId.set(item.id, item);
+          }
         }
       }
     }
@@ -892,6 +898,11 @@ export default function App() {
       if (clearTs > 0 && Number(item.createdAt || 0) <= clearTs) return false;
       return true;
     });
+
+    const localHasExtra = filtered.some((item) => !remoteIds.has(item.id));
+    if (localHasExtra) {
+      setTimeout(() => pushSyncSnapshot(filtered), 400);
+    }
 
     if (changed || byId.size !== prevCount || filtered.length !== entriesRef.current.length) {
       filtered.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
@@ -914,15 +925,18 @@ export default function App() {
         senderId: deviceId,
         sentAt: Date.now(),
         entries: customEntries || entriesRef.current,
-        deletedIds: [...deletedIdsRef.current].slice(-200),
+        deletedIds: [...deletedIdsRef.current].slice(-2000),
         categoryClearAt: categoryClearAtRef.current,
       });
       if (mqttClientRef.current && mqttClientRef.current.connected) {
         mqttClientRef.current.publish(`${cleanSyncTopic}/sync`, body, { retain: true, qos: 0 });
+        pendingPushRef.current = false;
+      } else {
+        pendingPushRef.current = true;
       }
       setLastSyncTime(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }));
     } catch {
-      // ignore offline push errors
+      pendingPushRef.current = true;
     }
   };
 
@@ -1025,6 +1039,11 @@ export default function App() {
       setSyncStatus('live');
       client.subscribe([`${cleanSyncTopic}/sync`, `${cleanSyncTopic}/dev/+`]);
       sendHeartbeat();
+      setTimeout(() => {
+        if (pendingPushRef.current && entriesRef.current.length > 0) {
+          pushSyncSnapshot(entriesRef.current);
+        }
+      }, 1200);
     });
 
     client.on('reconnect', () => setSyncStatus('connecting'));
@@ -1149,6 +1168,21 @@ export default function App() {
       tierByAmount: tierMap,
     };
   }, [boxTotals]);
+
+  // Keep 24/7 live notification updated with Highest Jodi & Active Total
+  useEffect(() => {
+    try {
+      const catTot = categoryTotals[activeCategory] || 0;
+      const top = rankedList[0];
+      const topText = top
+        ? `👑 ${String(top.number).padStart(2, '0')} (₹${top.amount.toLocaleString('en-IN')})`
+        : '👑 —';
+      const summary = `${topText} • ${activeCategory} Total: ₹${catTot.toLocaleString('en-IN')}`;
+      window.SunnyNativeBridge?.updateLiveNotificationStats?.(summary);
+    } catch {
+      // ignore
+    }
+  }, [activeCategory, categoryTotals, rankedList]);
 
   const categoryEntries = useMemo(() => {
     return entries
@@ -3127,7 +3161,8 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* Moti Jodi Threshold Filter (1% of Total Work: 30K -> ₹300+, 1L -> ₹1,000+) */}
+                  {/* Moti Jodi Threshold Filter (hidden in dedicated Cut Result Display) */}
+                  {!(cutApplied && motiMinAmount > 0) ? (
                   <div
                     style={{
                       display: 'flex',
@@ -3231,6 +3266,7 @@ export default function App() {
                       </button>
                     </div>
                   </div>
+                  ) : null}
 
                   {cutApplied && motiMinAmount > 0 && (() => {
                     const cutItems = filteredRankedList.filter((x) => x.amount > motiMinAmount);
@@ -3244,17 +3280,34 @@ export default function App() {
                           background: t.accentSoft,
                           border: `1px solid ${t.accent}`,
                           borderRadius: '10px',
-                          padding: '7px 10px',
+                          padding: '8px 10px',
                           fontSize: '12px',
                           fontWeight: 700,
                           color: t.accentText,
+                          gap: '8px',
                         }}
                       >
+                        <button
+                          type="button"
+                          onClick={() => setCutApplied(false)}
+                          style={{
+                            background: t.cardBg,
+                            border: `1px solid ${t.cardBorder}`,
+                            color: t.textPrimary,
+                            borderRadius: '7px',
+                            padding: '4px 8px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          ← Back
+                        </button>
                         <span>
-                          ✂️ Cut by ₹{motiMinAmount} • {cutItems.length} Jodis
+                          ✂️ Cut (-₹{motiMinAmount}) • {cutItems.length} Jodis
                         </span>
                         <span style={{ color: t.textPrimary }}>
-                          Cut Total: ₹{cutTotal.toLocaleString('en-IN')}
+                          ₹{cutTotal.toLocaleString('en-IN')}
                         </span>
                       </div>
                     );

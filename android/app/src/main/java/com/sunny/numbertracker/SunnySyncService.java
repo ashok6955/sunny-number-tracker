@@ -30,6 +30,7 @@ import java.util.UUID;
 public class SunnySyncService extends Service {
     public static final String ACTION_START = "com.sunny.numbertracker.SYNC_START";
     public static final String ACTION_STOP = "com.sunny.numbertracker.SYNC_STOP";
+    public static final String ACTION_UPDATE_STATS = "com.sunny.numbertracker.UPDATE_STATS";
     public static final String ACTION_SYNC_RECEIVED = "com.sunny.numbertracker.SYNC_DATA_RECEIVED";
 
     private static final String MQTT_HOST = "broker.emqx.io";
@@ -73,6 +74,14 @@ public class SunnySyncService extends Service {
             stopForeground(true);
             stopSelf();
             return START_NOT_STICKY;
+        }
+
+        if (ACTION_UPDATE_STATS.equals(action)) {
+            String summary = intent != null ? intent.getStringExtra("summary") : null;
+            if (summary != null && !summary.trim().isEmpty()) {
+                updateLiveNotification(summary.trim());
+            }
+            return START_STICKY;
         }
 
         String topic = intent != null && intent.hasExtra("topic")

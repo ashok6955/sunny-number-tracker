@@ -171,6 +171,19 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public void updateLiveNotificationStats(String summary) {
+            if (summary == null || summary.trim().isEmpty()) return;
+            runOnUiThread(() -> {
+                try {
+                    Intent svc = new Intent(MainActivity.this, SunnySyncService.class);
+                    svc.setAction(SunnySyncService.ACTION_UPDATE_STATS);
+                    svc.putExtra("summary", summary.trim());
+                    startService(svc);
+                } catch (Exception ignored) {}
+            });
+        }
+
+        @JavascriptInterface
         public String consumePendingBackgroundSync() {
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
             String raw = prefs.getString(KEY_PENDING_SYNC_JSON, "");
