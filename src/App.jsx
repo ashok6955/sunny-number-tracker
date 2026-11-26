@@ -342,6 +342,7 @@ function analyzeWhatsAppText(raw) {
           count: crossingEntries.length,
           perAmt: crossingEntries[0].amount,
           total: cTotal,
+          items: [...crossingEntries].sort((a, b) => a.number - b.number),
         });
       } else {
         failed.push({ rawLine: originalLine, reason: 'क्रॉसिंग/JC में अंक या अमाउंट नहीं मिला' });
@@ -363,6 +364,7 @@ function analyzeWhatsAppText(raw) {
           count: harufEntries.length,
           perAmt: harufEntries[0].amount,
           total: hTotal,
+          items: [...harufEntries].sort((a, b) => a.number - b.number),
         });
       } else {
         failed.push({ rawLine: originalLine, reason: 'हरूफ में अंक या अमाउंट नहीं मिला' });
@@ -1330,6 +1332,7 @@ export default function App() {
     const sortedNormal = [...normalResults].sort((a, b) => a.number - b.number);
     setPendingConfirm({
       isError: false,
+      step: 1,
       results: sortedResults,
       normalResults: sortedNormal,
       specialPreviews,
@@ -1405,6 +1408,13 @@ export default function App() {
 
   const handleConfirmPendingAdd = () => {
     if (!pendingConfirm) return;
+    const hasSpecials =
+      Array.isArray(pendingConfirm.specialPreviews) &&
+      pendingConfirm.specialPreviews.length > 0;
+    if ((pendingConfirm.step || 1) === 1 && hasSpecials) {
+      setPendingConfirm((prev) => (prev ? { ...prev, step: 2 } : null));
+      return;
+    }
     const { results, failed, sourceLabel, fromBridge } = pendingConfirm;
     commitParsedEntries(results, sourceLabel);
     if (failed.length > 0) {
@@ -4431,7 +4441,9 @@ export default function App() {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <h2 style={{ fontSize: '15px', fontWeight: 800, color: t.textPrimary }}>
-                    ✅ {activeCategory} — Confirm Add
+                    {pendingConfirm.step === 2
+                      ? `✅ ${activeCategory} — Review Generated Jodis`
+                      : `✅ ${activeCategory} — Confirm Add`}
                   </h2>
                   <button
                     onClick={handleCancelPendingAdd}
@@ -4515,74 +4527,176 @@ export default function App() {
                   </div>
                 )}
 
-                {Array.isArray(pendingConfirm.specialPreviews) &&
-                  pendingConfirm.specialPreviews.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      {pendingConfirm.specialPreviews.map((sp, sIdx) => (
-                        <div
-                          key={`${sp.kind}-${sIdx}`}
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            background: t.accentSoft,
-                            border: `1px solid ${t.accent}`,
-                            borderRadius: '10px',
-                            padding: '8px 10px',
-                            gap: '8px',
-                          }}
-                        >
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontSize: '12px', fontWeight: 800, color: t.accentText }}>
-                              {sp.kind === 'haruf' ? '🎯 Haruf' : '🔀 Crossing'}:{' '}
-                              <span style={{ color: t.textPrimary }}>{sp.raw}</span>
-                            </div>
-                            <div style={{ fontSize: '10px', color: t.textSecondary, marginTop: '2px' }}>
-                              Adds {sp.count} Jodis (₹{sp.perAmt} each) on Confirm
-                            </div>
-                          </div>
-                          <span style={{ fontSize: '14px', fontWeight: 800, color: t.textPrimary, whiteSpace: 'nowrap' }}>
-                            ₹{sp.total.toLocaleString('en-IN')}
+                {pendingConfirm.step === 2 ? (
+                  <div
+                    className="grid-scroll"
+                    style={{
+                      overflowY: 'auto',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px',
+                      maxHeight: '260px',
+                      padding: '2px 0',
+                    }}
+                  >
+                    {(pendingConfirm.specialPreviews || []).map((sp, sIdx) => (
+                      <div
+                        key={`step2-${sp.kind}-${sIdx}`}
+                        style={{
+                          background: t.inputBg,
+                          border: `1px solid ${t.accent}`,
+                          borderRadius: '10px',
+                          padding: '8px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '6px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 800, color: t.accentText }}>
+                            {sp.kind === 'haruf' ? '🎯 Haruf' : '🔀 Crossing'}: {sp.raw}
+                          </span>
+                          <span style={{ fontSize: '11px', fontWeight: 700, color: t.textSecondary }}>
+                            {sp.count} Jodis • ₹{sp.total.toLocaleString('en-IN')}
                           </span>
                         </div>
-                      ))}
-                    </div>
-                  )}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                          {(sp.items || []).map((item, jIdx) => (
+                            <span
+                              key={`${item.number}-${jIdx}`}
+                              style={{
+                                background: t.cardBg,
+                                border: `1px solid ${t.cardBorder}`,
+                                borderRadius: '7px',
+                                padding: '4px 8px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                color: t.textPrimary,
+                              }}
+                            >
+                              {String(item.number).padStart(2, '0')} ={' '}
+                              <span style={{ color: t.accentText }}>₹{item.amount}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    {Array.isArray(pendingConfirm.normalResults) &&
+                      pendingConfirm.normalResults.length > 0 && (
+                        <div
+                          style={{
+                            background: t.inputBg,
+                            border: `1px solid ${t.cardBorder}`,
+                            borderRadius: '10px',
+                            padding: '8px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                          }}
+                        >
+                          <div style={{ fontSize: '12px', fontWeight: 800, color: t.textPrimary }}>
+                            📌 Normal Jodis ({pendingConfirm.normalResults.length})
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                            {pendingConfirm.normalResults.map((item, idx) => (
+                              <span
+                                key={`n-${item.number}-${idx}`}
+                                style={{
+                                  background: t.cardBg,
+                                  border: `1px solid ${t.cardBorder}`,
+                                  borderRadius: '7px',
+                                  padding: '4px 8px',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  color: t.textPrimary,
+                                }}
+                              >
+                                {String(item.number).padStart(2, '0')} ={' '}
+                                <span style={{ color: t.accentText }}>₹{item.amount}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                  </div>
+                ) : (
+                  <>
+                    {Array.isArray(pendingConfirm.specialPreviews) &&
+                      pendingConfirm.specialPreviews.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {pendingConfirm.specialPreviews.map((sp, sIdx) => (
+                            <div
+                              key={`${sp.kind}-${sIdx}`}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                background: t.accentSoft,
+                                border: `1px solid ${t.accent}`,
+                                borderRadius: '10px',
+                                padding: '8px 10px',
+                                gap: '8px',
+                              }}
+                            >
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: '12px', fontWeight: 800, color: t.accentText }}>
+                                  {sp.kind === 'haruf' ? '🎯 Haruf' : '🔀 Crossing'}:{' '}
+                                  <span style={{ color: t.textPrimary }}>{sp.raw}</span>
+                                </div>
+                                <div style={{ fontSize: '10px', color: t.textSecondary, marginTop: '2px' }}>
+                                  Tap Confirm to view {sp.count} Jodis (₹{sp.perAmt} each)
+                                </div>
+                              </div>
+                              <span style={{ fontSize: '14px', fontWeight: 800, color: t.textPrimary, whiteSpace: 'nowrap' }}>
+                                ₹{sp.total.toLocaleString('en-IN')}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
 
-                <div
-                  className="grid-scroll"
-                  style={{
-                    overflowY: 'auto',
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: '6px',
-                    maxHeight: '200px',
-                    padding: '4px 0',
-                  }}
-                >
-                  {(pendingConfirm.normalResults || pendingConfirm.results).map((item, idx) => (
-                    <span
-                      key={`${item.number}-${idx}`}
+                    <div
+                      className="grid-scroll"
                       style={{
-                        background: t.inputBg,
-                        border: `1px solid ${t.cardBorder}`,
-                        borderRadius: '8px',
-                        padding: '5px 9px',
-                        fontSize: '12px',
-                        fontWeight: 700,
-                        color: t.textPrimary,
+                        overflowY: 'auto',
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '6px',
+                        maxHeight: '200px',
+                        padding: '4px 0',
                       }}
                     >
-                      {String(item.number).padStart(2, '0')} ={' '}
-                      <span style={{ color: t.accentText }}>₹{item.amount}</span>
-                    </span>
-                  ))}
-                </div>
+                      {(pendingConfirm.normalResults || pendingConfirm.results).map((item, idx) => (
+                        <span
+                          key={`${item.number}-${idx}`}
+                          style={{
+                            background: t.inputBg,
+                            border: `1px solid ${t.cardBorder}`,
+                            borderRadius: '8px',
+                            padding: '5px 9px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            color: t.textPrimary,
+                          }}
+                        >
+                          {String(item.number).padStart(2, '0')} ={' '}
+                          <span style={{ color: t.accentText }}>₹{item.amount}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
 
                 <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
                   <button
                     type="button"
-                    onClick={handleCancelPendingAdd}
+                    onClick={() => {
+                      if (pendingConfirm.step === 2) {
+                        setPendingConfirm((prev) => (prev ? { ...prev, step: 1 } : null));
+                      } else {
+                        handleCancelPendingAdd();
+                      }
+                    }}
                     style={{
                       flex: 1,
                       background: t.inputBg,
@@ -4595,7 +4709,7 @@ export default function App() {
                       cursor: 'pointer',
                     }}
                   >
-                    Cancel
+                    {pendingConfirm.step === 2 ? '← Back' : 'Cancel'}
                   </button>
                   <button
                     type="button"
