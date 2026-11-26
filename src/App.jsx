@@ -440,7 +440,9 @@ function analyzeWhatsAppText(raw) {
     if (!cleaned) continue;
 
     // 2b. Multiple inline "num=amt" pairs on a single line (e.g. "02=10 12=10 ... 92=10")
-    const inlinePairs = [...cleaned.matchAll(/\b(\d{1,3})\s*=\s*(\d+(?:\.\d+)?)\b/g)];
+    // Skip chained "59=99=09=75" or "11=61=71===35" so sepMatch assigns the last amount to all numbers
+    const isChainedEquals = /\d\s*=+\s*\d+\s*=+\s*\d/.test(cleaned);
+    const inlinePairs = isChainedEquals ? [] : [...cleaned.matchAll(/\b(\d{1,3})\s*=\s*(\d+(?:\.\d+)?)\b/g)];
     if (inlinePairs.length >= 2 && /^[\d\s=.,]+$/.test(cleaned)) {
       pendingNumbers = [];
       pendingRawLines = [];
