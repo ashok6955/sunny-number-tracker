@@ -244,8 +244,10 @@ function tryParseCrossingLine(line) {
  */
 function analyzeWhatsAppText(raw) {
   const results = [];
+  const normalResults = [];
+  const specialPreviews = [];
   const failed = [];
-  if (!raw || !raw.trim()) return { results, failed };
+  if (!raw || !raw.trim()) return { results, normalResults, specialPreviews, failed };
 
   const lines = raw.split(/\r?\n|;|\|/);
   let pendingNumbers = [];
@@ -256,10 +258,12 @@ function analyzeWhatsAppText(raw) {
     lastBatchNums = [...nums];
     for (const n of nums) {
       results.push({ number: n, amount: straightAmt });
+      normalResults.push({ number: n, amount: straightAmt });
       if (palatAmt > 0) {
         const rev = getPalatNumber(n);
         if (rev !== null) {
           results.push({ number: rev, amount: palatAmt });
+          normalResults.push({ number: rev, amount: palatAmt });
         }
       }
     }
@@ -331,6 +335,14 @@ function analyzeWhatsAppText(raw) {
       pendingRawLines = [];
       if (crossingEntries.length > 0) {
         results.push(...crossingEntries);
+        const cTotal = crossingEntries.reduce((s, x) => s + x.amount, 0);
+        specialPreviews.push({
+          kind: 'crossing',
+          raw: originalLine,
+          count: crossingEntries.length,
+          perAmt: crossingEntries[0].amount,
+          total: cTotal,
+        });
       } else {
         failed.push({ rawLine: originalLine, reason: 'क्रॉसिंग/JC में अंक या अमाउंट नहीं मिला' });
       }
@@ -344,6 +356,14 @@ function analyzeWhatsAppText(raw) {
       pendingRawLines = [];
       if (harufEntries.length > 0) {
         results.push(...harufEntries);
+        const hTotal = harufEntries.reduce((s, x) => s + x.amount, 0);
+        specialPreviews.push({
+          kind: 'haruf',
+          raw: originalLine,
+          count: harufEntries.length,
+          perAmt: harufEntries[0].amount,
+          total: hTotal,
+        });
       } else {
         failed.push({ rawLine: originalLine, reason: 'हरूफ में अंक या अमाउंट नहीं मिला' });
       }
@@ -543,7 +563,7 @@ function analyzeWhatsAppText(raw) {
     });
   }
 
-  return { results, failed };
+  return { results, normalResults, specialPreviews, failed };
 }
 
 function extractDeclaredTotal(raw) {
@@ -1282,7 +1302,7 @@ export default function App() {
       setInputText('');
       return;
     }
-    const { results, failed } = analyzeWhatsAppText(rawText);
+    const { results, normalResults, specialPreviews, failed } = analyzeWhatsAppText(rawText);
     setInputText('');
     if (results.length === 0) {
       const savedCount = recordFailedPatterns(failed, rawText);
@@ -1290,6 +1310,8 @@ export default function App() {
         setPendingConfirm({
           isError: true,
           results: [],
+          normalResults: [],
+          specialPreviews: [],
           failed,
           sourceLabel,
           rawText,
@@ -1305,7 +1327,17 @@ export default function App() {
       return;
     }
     const sortedResults = [...results].sort((a, b) => a.number - b.number);
-    setPendingConfirm({ isError: false, results: sortedResults, failed, sourceLabel, rawText, fromBridge });
+    const sortedNormal = [...normalResults].sort((a, b) => a.number - b.number);
+    setPendingConfirm({
+      isError: false,
+      results: sortedResults,
+      normalResults: sortedNormal,
+      specialPreviews,
+      failed,
+      sourceLabel,
+      rawText,
+      fromBridge,
+    });
   };
 
   // Listen for clipboard text from native Android auto-clipboard check (when Auto ON)
@@ -4483,6 +4515,40 @@ export default function App() {
                   </div>
                 )}
 
+                {Array.isArray(pendingConfirm.specialPreviews) &&
+                  pendingConfirm.specialPreviews.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {pendingConfirm.specialPreviews.map((sp, sIdx) => (
+                        <div
+                          key={`${sp.kind}-${sIdx}`}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            background: t.accentSoft,
+                            border: `1px solid ${t.accent}`,
+                            borderRadius: '10px',
+                            padding: '8px 10px',
+                            gap: '8px',
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: '12px', fontWeight: 800, color: t.accentText }}>
+                              {sp.kind === 'haruf' ? '🎯 Haruf' : '🔀 Crossing'}:{' '}
+                              <span style={{ color: t.textPrimary }}>{sp.raw}</span>
+                            </div>
+                            <div style={{ fontSize: '10px', color: t.textSecondary, marginTop: '2px' }}>
+                              Adds {sp.count} Jodis (₹{sp.perAmt} each) on Confirm
+                            </div>
+                          </div>
+                          <span style={{ fontSize: '14px', fontWeight: 800, color: t.textPrimary, whiteSpace: 'nowrap' }}>
+                            ₹{sp.total.toLocaleString('en-IN')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                 <div
                   className="grid-scroll"
                   style={{
@@ -4490,11 +4556,11 @@ export default function App() {
                     display: 'flex',
                     flexWrap: 'wrap',
                     gap: '6px',
-                    maxHeight: '220px',
+                    maxHeight: '200px',
                     padding: '4px 0',
                   }}
                 >
-                  {pendingConfirm.results.map((item, idx) => (
+                  {(pendingConfirm.normalResults || pendingConfirm.results).map((item, idx) => (
                     <span
                       key={`${item.number}-${idx}`}
                       style={{
