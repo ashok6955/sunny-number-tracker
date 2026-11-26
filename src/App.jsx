@@ -250,11 +250,15 @@ function analyzeWhatsAppText(raw) {
   const normalResults = [];
   const specialPreviews = [];
   const failed = [];
-  if (!raw || !raw.trim()) return { results, normalResults, specialPreviews, failed };
+  const lineBreakdown = [];
+  if (!raw || !raw.trim()) {
+    return { results, normalResults, specialPreviews, failed, lineBreakdown };
+  }
 
   const lines = raw.split(/\r?\n|;|\|/);
   let pendingNumbers = [];
   let pendingRawLines = [];
+  let pendingLineRefs = [];
   let lastBatchNums = [];
 
   const pushEntries = (nums, straightAmt, palatAmt) => {
@@ -276,6 +280,20 @@ function analyzeWhatsAppText(raw) {
     const originalLine = lines[i].trim();
     let line = originalLine;
     if (!line) continue;
+
+    const lbEntry = {
+      lineNo: lineBreakdown.length + 1,
+      raw: originalLine,
+      count: 0,
+      total: 0,
+      status: 'skipped',
+      note: '',
+    };
+    lineBreakdown.push(lbEntry);
+    const startResIdx = results.length;
+    const startPendingCount = pendingNumbers.length;
+    const startFailedCount = failed.length;
+    try {
 
     // 1. Strip WhatsApp copy-paste & export timestamp + sender prefix:
     //    - "[22/11, 4:07 am] tg 3: 72.78.79.70.... into25"
@@ -612,6 +630,7 @@ function analyzeWhatsAppText(raw) {
       if (buffered.length > 0) {
         pendingNumbers.push(...buffered);
         pendingRawLines.push(originalLine);
+        pendingLineRefs.push({ lbIndex: lineBreakdown.length - 1, numCount: buffered.length });
         continue;
       }
     }
@@ -619,6 +638,30 @@ function analyzeWhatsAppText(raw) {
     // Line had digits but matched no known pattern -> record as failed pattern
     if (/\d/.test(line)) {
       failed.push({ rawLine: originalLine, reason: 'पैटर्न पार्स नहीं हो सका' });
+    }
+    } finally {
+      const addedItems = results.slice(startResIdx);
+      if (addedItems.length > 0) {
+        lbEntry.count = addedItems.length;
+        lbEntry.total = addedItems.reduce((s, x) => s + x.amount, 0);
+        lbEntry.status = 'parsed';
+        if (pendingLineRefs.length > 0 && pendingNumbers.length === 0) {
+          for (const ref of pendingLineRefs) {
+            if (lineBreakdown[ref.lbIndex]) {
+              lineBreakdown[ref.lbIndex].status = 'included';
+              lineBreakdown[ref.lbIndex].note = `${ref.numCount} nos → below`;
+            }
+          }
+          pendingLineRefs = [];
+        }
+      } else if (pendingNumbers.length > startPendingCount) {
+        lbEntry.status = 'buffered';
+        lbEntry.note = `${pendingNumbers.length - startPendingCount} nos (pending)`;
+      } else if (failed.length > startFailedCount) {
+        lbEntry.status = 'failed';
+      } else if (pendingNumbers.length === 0 && pendingLineRefs.length > 0) {
+        pendingLineRefs = [];
+      }
     }
   }
 
@@ -628,9 +671,15 @@ function analyzeWhatsAppText(raw) {
       rawLine: pendingRawLines.join(' | '),
       reason: 'नंबर के बाद अमाउंट (into/=/Rs) नहीं मिला',
     });
+    for (const ref of pendingLineRefs) {
+      if (lineBreakdown[ref.lbIndex]) {
+        lineBreakdown[ref.lbIndex].status = 'failed';
+        lineBreakdown[ref.lbIndex].note = 'No amount';
+      }
+    }
   }
 
-  return { results, normalResults, specialPreviews, failed };
+  return { results, normalResults, specialPreviews, failed, lineBreakdown };
 }
 
 function extractDeclaredTotal(raw) {
@@ -1456,7 +1505,8 @@ export default function App() {
       setInputText('');
       return;
     }
-    const { results, normalResults, specialPreviews, failed } = analyzeWhatsAppText(rawText);
+    const { results, normalResults, specialPreviews, failed, lineBreakdown } =
+      analyzeWhatsAppText(rawText);
     setInputText('');
     if (results.length === 0) {
       const savedCount = recordFailedPatterns(failed, rawText);
@@ -1467,6 +1517,7 @@ export default function App() {
           normalResults: [],
           specialPreviews: [],
           failed,
+          lineBreakdown,
           sourceLabel,
           rawText,
           fromBridge: true,
@@ -1485,10 +1536,12 @@ export default function App() {
     setPendingConfirm({
       isError: false,
       step: 1,
+      viewTab: 'numbers',
       results: sortedResults,
       normalResults: sortedNormal,
       specialPreviews,
       failed,
+      lineBreakdown,
       sourceLabel,
       rawText,
       fromBridge,
@@ -5086,34 +5139,256 @@ export default function App() {
                       )}
 
                     <div
-                      className="grid-scroll"
                       style={{
-                        overflowY: 'auto',
                         display: 'flex',
-                        flexWrap: 'wrap',
                         gap: '6px',
-                        maxHeight: '200px',
-                        padding: '4px 0',
+                        background: t.inputBg,
+                        padding: '4px',
+                        borderRadius: '10px',
+                        border: `1px solid ${t.cardBorder}`,
                       }}
                     >
-                      {(pendingConfirm.normalResults || pendingConfirm.results).map((item, idx) => (
-                        <span
-                          key={`${item.number}-${idx}`}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPendingConfirm((prev) => (prev ? { ...prev, viewTab: 'numbers' } : null))
+                        }
+                        style={{
+                          flex: 1,
+                          padding: '6px 8px',
+                          borderRadius: '7px',
+                          border: 'none',
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          background: (pendingConfirm.viewTab || 'numbers') === 'numbers' ? t.accent : 'transparent',
+                          color: (pendingConfirm.viewTab || 'numbers') === 'numbers' ? '#ffffff' : t.textSecondary,
+                        }}
+                      >
+                        01–100 View ({pendingConfirm.results.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPendingConfirm((prev) => (prev ? { ...prev, viewTab: 'parchi' } : null))
+                        }
+                        style={{
+                          flex: 1,
+                          padding: '6px 8px',
+                          borderRadius: '7px',
+                          border: 'none',
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          background: pendingConfirm.viewTab === 'parchi' ? t.accent : 'transparent',
+                          color: pendingConfirm.viewTab === 'parchi' ? '#ffffff' : t.textSecondary,
+                        }}
+                      >
+                        Parchi Line View ({(pendingConfirm.lineBreakdown || []).length})
+                      </button>
+                    </div>
+
+                    {pendingConfirm.viewTab === 'parchi' ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '11px', color: t.textSecondary, fontWeight: 700 }}>
+                            Line-by-Line Total Check
+                          </span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const linesOut = [
+                                `*${activeCategory} Parchi Breakdown*`,
+                                ...(pendingConfirm.lineBreakdown || []).map((row) => {
+                                  if (row.status === 'parsed') {
+                                    return `#${row.lineNo} ${row.raw}  =>  ${row.count} Jodi = ₹${row.total}`;
+                                  }
+                                  if (row.status === 'included') {
+                                    return `#${row.lineNo} ${row.raw}  =>  (${row.note})`;
+                                  }
+                                  if (row.status === 'failed') {
+                                    return `#${row.lineNo} ${row.raw}  =>  ❌ FAILED`;
+                                  }
+                                  return `#${row.lineNo} ${row.raw}  =>  (Skipped)`;
+                                }),
+                                `----------------`,
+                                `Calculated Total: ₹${msgTotal}`,
+                              ];
+                              if (declaredTotal !== null) {
+                                linesOut.push(`Customer Total: ₹${declaredTotal}`);
+                                const diff = msgTotal - declaredTotal;
+                                linesOut.push(
+                                  diff === 0
+                                    ? `Status: Matched ✓`
+                                    : `Difference: ${diff > 0 ? '+' : ''}₹${diff}`
+                                );
+                              }
+                              try {
+                                await navigator.clipboard.writeText(linesOut.join('\n'));
+                                showToast('Parchi Breakdown Copied ✓');
+                              } catch {
+                                showToast('Copy failed');
+                              }
+                            }}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              padding: '5px 10px',
+                              borderRadius: '8px',
+                              border: `1px solid ${t.accent}`,
+                              background: t.accentSoft,
+                              color: t.accentText,
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <Copy size={12} /> Copy Breakdown
+                          </button>
+                        </div>
+
+                        <div
+                          className="grid-scroll"
                           style={{
-                            background: t.inputBg,
-                            border: `1px solid ${t.cardBorder}`,
-                            borderRadius: '8px',
-                            padding: '5px 9px',
-                            fontSize: '12px',
-                            fontWeight: 700,
-                            color: t.textPrimary,
+                            overflowY: 'auto',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '5px',
+                            maxHeight: '220px',
+                            paddingRight: '2px',
                           }}
                         >
-                          {String(item.number).padStart(2, '0')} ={' '}
-                          <span style={{ color: t.accentText }}>₹{item.amount}</span>
-                        </span>
-                      ))}
-                    </div>
+                          {(pendingConfirm.lineBreakdown || []).map((row) => {
+                            const isParsed = row.status === 'parsed';
+                            const isFailed = row.status === 'failed';
+                            const isIncluded = row.status === 'included';
+                            return (
+                              <div
+                                key={`lb-${row.lineNo}`}
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  background: isFailed
+                                    ? 'rgba(225, 29, 72, 0.14)'
+                                    : isParsed
+                                    ? t.inputBg
+                                    : 'rgba(148, 163, 184, 0.08)',
+                                  border: `1px solid ${
+                                    isFailed
+                                      ? 'rgba(244, 63, 94, 0.5)'
+                                      : isParsed
+                                      ? t.cardBorder
+                                      : 'rgba(148, 163, 184, 0.2)'
+                                  }`,
+                                  borderRadius: '8px',
+                                  padding: '6px 9px',
+                                }}
+                              >
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                  <div
+                                    style={{
+                                      fontSize: '11px',
+                                      fontFamily: 'monospace',
+                                      fontWeight: 700,
+                                      color: isFailed ? '#fda4af' : t.textPrimary,
+                                      wordBreak: 'break-word',
+                                    }}
+                                  >
+                                    <span style={{ color: t.textMuted, marginRight: '5px' }}>
+                                      #{row.lineNo}
+                                    </span>
+                                    {row.raw}
+                                  </div>
+                                </div>
+                                <div style={{ textAlign: 'right', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                  {isParsed && (
+                                    <span
+                                      style={{
+                                        fontSize: '11px',
+                                        fontWeight: 800,
+                                        color: '#fbbf24',
+                                      }}
+                                    >
+                                      {row.count}J • ₹{row.total.toLocaleString('en-IN')}
+                                    </span>
+                                  )}
+                                  {isIncluded && (
+                                    <span style={{ fontSize: '10px', fontWeight: 700, color: '#38bdf8' }}>
+                                      {row.note}
+                                    </span>
+                                  )}
+                                  {isFailed && (
+                                    <span style={{ fontSize: '10px', fontWeight: 800, color: '#fb7185' }}>
+                                      ❌ Failed
+                                    </span>
+                                  )}
+                                  {!isParsed && !isIncluded && !isFailed && (
+                                    <span style={{ fontSize: '10px', color: t.textMuted }}>
+                                      Skipped
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {declaredTotal !== null && !totalMatches && (
+                          <div
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              color: '#fb7185',
+                              background: 'rgba(225, 29, 72, 0.12)',
+                              border: '1px solid rgba(244, 63, 94, 0.4)',
+                              borderRadius: '8px',
+                              padding: '6px 9px',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                            }}
+                          >
+                            <span>Diff (Our Total − Customer):</span>
+                            <span>
+                              {msgTotal - declaredTotal > 0 ? '+' : ''}₹
+                              {(msgTotal - declaredTotal).toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div
+                        className="grid-scroll"
+                        style={{
+                          overflowY: 'auto',
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: '6px',
+                          maxHeight: '200px',
+                          padding: '4px 0',
+                        }}
+                      >
+                        {(pendingConfirm.normalResults || pendingConfirm.results).map((item, idx) => (
+                          <span
+                            key={`${item.number}-${idx}`}
+                            style={{
+                              background: t.inputBg,
+                              border: `1px solid ${t.cardBorder}`,
+                              borderRadius: '8px',
+                              padding: '5px 9px',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              color: t.textPrimary,
+                            }}
+                          >
+                            {String(item.number).padStart(2, '0')} ={' '}
+                            <span style={{ color: t.accentText }}>₹{item.amount}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </>
                 )}
 
