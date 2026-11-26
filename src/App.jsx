@@ -916,6 +916,8 @@ export default function App() {
   };
 
   const mqttClientRef = useRef(null);
+  const lastCatSyncAtRef = useRef(0);
+  const skipNextCatPushRef = useRef(false);
 
   const pushSyncSnapshot = async (customEntries) => {
     if (!syncEnabled || !cleanSyncTopic) return;
@@ -1037,7 +1039,7 @@ export default function App() {
 
     client.on('connect', () => {
       setSyncStatus('live');
-      client.subscribe([`${cleanSyncTopic}/sync`, `${cleanSyncTopic}/dev/+`]);
+      client.subscribe([`${cleanSyncTopic}/sync`, `${cleanSyncTopic}/dev/+`, `${cleanSyncTopic}/category`]);
       sendHeartbeat();
       setTimeout(() => {
         if (pendingPushRef.current && entriesRef.current.length > 0) {
@@ -1052,6 +1054,20 @@ export default function App() {
     client.on('message', (_topic, messageBuf) => {
       try {
         const payload = JSON.parse(messageBuf.toString());
+        if (payload && payload.type === 'SUNNY_CAT_V1') {
+          if (
+            payload.senderId !== deviceId &&
+            CATEGORIES.includes(payload.category) &&
+            Number(payload.sentAt || 0) > lastCatSyncAtRef.current
+          ) {
+            lastCatSyncAtRef.current = Number(payload.sentAt);
+            skipNextCatPushRef.current = true;
+            setActiveCategory(payload.category);
+            if (typeof payload.isLocked === 'boolean') setIsLocked(payload.isLocked);
+            showToast(`🔄 Switched to ${payload.category}`);
+          }
+          return;
+        }
         if (mergeRemoteSyncPayload(payload)) {
           showToast('🟢 New data synced from another phone');
         }
@@ -1177,7 +1193,31 @@ export default function App() {
     };
   }, [boxTotals]);
 
-  // Keep 24/7 live notification + Heliboard MQTT stats updated with Highest Jodi & Active Total
+  // Sync active category & lock across all 4 phones automatically
+  useEffect(() => {
+    if (!syncEnabled || !cleanSyncTopic) return;
+    if (skipNextCatPushRef.current) {
+      skipNextCatPushRef.current = false;
+      return;
+    }
+    if (mqttClientRef.current && mqttClientRef.current.connected) {
+      const now = Date.now();
+      lastCatSyncAtRef.current = now;
+      mqttClientRef.current.publish(
+        `${cleanSyncTopic}/category`,
+        JSON.stringify({
+          type: 'SUNNY_CAT_V1',
+          senderId: deviceId,
+          category: activeCategory,
+          isLocked,
+          sentAt: now,
+        }),
+        { retain: true, qos: 0 }
+      );
+    }
+  }, [activeCategory, isLocked, syncEnabled, cleanSyncTopic]);
+
+  // Keep 24/7 live notification + Heliboard MQTT stats updated with Locked Game, Highest Jodi & Total
   useEffect(() => {
     try {
       const catTot = categoryTotals[activeCategory] || 0;
@@ -1185,19 +1225,20 @@ export default function App() {
       const topText = top
         ? `👑 ${String(top.number).padStart(2, '0')} (₹${top.amount.toLocaleString('en-IN')})`
         : '👑 —';
-      const summary = `${topText} • ${activeCategory}: ₹${catTot.toLocaleString('en-IN')}`;
+      const lockIcon = isLocked ? '🔒' : '🔓';
+      const summary = `${lockIcon} ${activeCategory}: ₹${catTot.toLocaleString('en-IN')} • ${topText}`;
       window.SunnyNativeBridge?.updateLiveNotificationStats?.(summary);
       if (syncEnabled && cleanSyncTopic && mqttClientRef.current && mqttClientRef.current.connected) {
         mqttClientRef.current.publish(
           `${cleanSyncTopic}/stats`,
-          JSON.stringify({ summary, updatedAt: Date.now() }),
+          JSON.stringify({ summary, category: activeCategory, updatedAt: Date.now() }),
           { retain: true, qos: 0 }
         );
       }
     } catch {
       // ignore
     }
-  }, [activeCategory, categoryTotals, rankedList, syncEnabled, cleanSyncTopic]);
+  }, [activeCategory, isLocked, categoryTotals, rankedList, syncEnabled, cleanSyncTopic]);
 
   const categoryEntries = useMemo(() => {
     return entries
