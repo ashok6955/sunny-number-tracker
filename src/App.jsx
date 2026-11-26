@@ -1177,7 +1177,7 @@ export default function App() {
     };
   }, [boxTotals]);
 
-  // Keep 24/7 live notification updated with Highest Jodi & Active Total
+  // Keep 24/7 live notification + Heliboard MQTT stats updated with Highest Jodi & Active Total
   useEffect(() => {
     try {
       const catTot = categoryTotals[activeCategory] || 0;
@@ -1185,12 +1185,19 @@ export default function App() {
       const topText = top
         ? `👑 ${String(top.number).padStart(2, '0')} (₹${top.amount.toLocaleString('en-IN')})`
         : '👑 —';
-      const summary = `${topText} • ${activeCategory} Total: ₹${catTot.toLocaleString('en-IN')}`;
+      const summary = `${topText} • ${activeCategory}: ₹${catTot.toLocaleString('en-IN')}`;
       window.SunnyNativeBridge?.updateLiveNotificationStats?.(summary);
+      if (syncEnabled && cleanSyncTopic && mqttClientRef.current && mqttClientRef.current.connected) {
+        mqttClientRef.current.publish(
+          `${cleanSyncTopic}/stats`,
+          JSON.stringify({ summary, updatedAt: Date.now() }),
+          { retain: true, qos: 0 }
+        );
+      }
     } catch {
       // ignore
     }
-  }, [activeCategory, categoryTotals, rankedList]);
+  }, [activeCategory, categoryTotals, rankedList, syncEnabled, cleanSyncTopic]);
 
   const categoryEntries = useMemo(() => {
     return entries

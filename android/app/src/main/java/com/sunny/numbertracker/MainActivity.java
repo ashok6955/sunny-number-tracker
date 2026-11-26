@@ -178,8 +178,8 @@ public class MainActivity extends BridgeActivity {
                     .edit()
                     .putString("live_stats_summary", clean)
                     .apply();
-            Intent kb = new Intent(SunnySyncService.ACTION_UPDATE_STATS);
-            kb.setPackage(getPackageName());
+            Intent kb = new Intent("com.sunny.numbertracker.LIVE_STATS");
+            kb.putExtra("summary", clean);
             sendBroadcast(kb);
             runOnUiThread(() -> {
                 try {

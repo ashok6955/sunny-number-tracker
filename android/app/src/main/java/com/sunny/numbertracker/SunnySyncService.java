@@ -81,8 +81,8 @@ public class SunnySyncService extends Service {
             if (summary != null && !summary.trim().isEmpty()) {
                 prefs.edit().putString("live_stats_summary", summary.trim()).apply();
                 updateLiveNotification(summary.trim());
-                Intent b = new Intent(ACTION_UPDATE_STATS);
-                b.setPackage(getPackageName());
+                Intent b = new Intent("com.sunny.numbertracker.LIVE_STATS");
+                b.putExtra("summary", summary.trim());
                 sendBroadcast(b);
             }
             return START_STICKY;
