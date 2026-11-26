@@ -1792,7 +1792,7 @@ export default function App() {
             borderBottom: `1px solid ${t.cardBorder}`,
           }}
         >
-          {/* Row 1: Title + Lock Badge + Theme & Grid Toggle */}
+          {/* Row 1: Title + Lock Badge + Connected + Menu */}
           <div
             style={{
               display: 'flex',
@@ -1802,10 +1802,10 @@ export default function App() {
               marginBottom: '6px',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flexWrap: 'wrap' }}>
               <h1
                 style={{
-                  fontSize: '16px',
+                  fontSize: '15px',
                   fontWeight: 800,
                   color: t.textPrimary,
                   whiteSpace: 'nowrap',
@@ -1829,18 +1829,18 @@ export default function App() {
                 }}
               >
                 {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
-                {isLocked ? `${activeCategory} Locked` : 'अनLocked'}
+                {isLocked ? `${activeCategory} Locked` : 'Unlocked'}
               </span>
             </div>
 
-            <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
+            <div style={{ display: 'flex', gap: '6px', flexShrink: 0, alignItems: 'center' }}>
               <button
                 onClick={() => setToolsView('cloud_sync')}
-                title="4-फोन फ्री लाइव सिंक सेटिंग"
+                title="4-Phone Live Sync Settings"
                 style={{
                   background: syncEnabled
                     ? syncStatus === 'live'
-                      ? '#059669'
+                      ? '#00a884'
                       : 'rgba(245, 158, 11, 0.2)'
                     : t.inputBg,
                   color: syncEnabled
@@ -1848,62 +1848,48 @@ export default function App() {
                       ? '#ffffff'
                       : '#fbbf24'
                     : t.textSecondary,
-                  border: `1.5px solid ${
-                    syncEnabled ? (syncStatus === 'live' ? '#34d399' : '#f59e0b') : t.cardBorder
+                  border: `1px solid ${
+                    syncEnabled ? (syncStatus === 'live' ? '#00a884' : '#f59e0b') : t.cardBorder
                   }`,
-                  borderRadius: '8px',
-                  padding: '5px 8px',
+                  borderRadius: '999px',
+                  padding: '4px 9px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '4px',
                   fontSize: '10px',
-                  fontWeight: 800,
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap',
                 }}
               >
-                <Wifi size={13} color={syncEnabled && syncStatus === 'live' ? '#ffffff' : undefined} />
+                <Wifi size={12} color={syncEnabled && syncStatus === 'live' ? '#ffffff' : undefined} />
                 {syncEnabled ? (syncStatus === 'live' ? `Connected: ${connectedCount}` : 'Sync...') : 'Sync'}
               </button>
               <button
-                onClick={() => setThemeMode((m) => (m === 'dark' ? 'light' : 'dark'))}
-                title="थीम बदलें"
-                style={{
-                  background: t.inputBg,
-                  color: t.textSecondary,
-                  border: `1px solid ${t.cardBorder}`,
-                  borderRadius: '8px',
-                  padding: '5px 8px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                }}
-              >
-                {themeMode === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-              </button>
-              <button
-                onClick={() => setColumns((c) => (c === 5 ? 10 : 5))}
-                title="ग्रिड लेआउट बदलें"
+                onClick={() => setToolsView('menu')}
+                title="Open Settings & Tools"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: '4px',
                   background: t.inputBg,
-                  color: t.textSecondary,
+                  color: t.textPrimary,
                   border: `1px solid ${t.cardBorder}`,
-                  borderRadius: '8px',
-                  padding: '5px 8px',
+                  borderRadius: '999px',
+                  padding: '4px 10px',
                   fontSize: '11px',
-                  fontWeight: 600,
+                  fontWeight: 700,
                   cursor: 'pointer',
+                  whiteSpace: 'nowrap',
                 }}
               >
-                <LayoutGrid size={14} />
-                {columns === 5 ? '5' : '10'}
+                <Wrench size={12} color={t.accent} />
+                Settings
               </button>
             </div>
           </div>
 
-          {/* Row 2: Grand Total + History & Tools Buttons */}
+          {/* Row 2: Grand Total + History */}
           <div
             style={{
               display: 'flex',
@@ -1923,79 +1909,27 @@ export default function App() {
               </span>
             </p>
 
-            <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
-              <button
-                onClick={() => {
-                  const next = !autoPasteEnabled;
-                  setAutoPasteEnabled(next);
-                  showToast(
-                    next
-                      ? '🔓 ऑटो-कॉपी ON — कॉपी किया Numbers अपने-आप Confirm दिखेगा'
-                      : '🔒 ऑटो-कॉपी OFF — अब कॉपी डेटा अपने-आप नहीं आएगा'
-                  );
-                }}
-                title="ऑटो-कॉपी चालू/Close"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '3px',
-                  background: autoPasteEnabled ? 'rgba(16, 185, 129, 0.16)' : 'rgba(225, 29, 72, 0.16)',
-                  color: autoPasteEnabled ? '#6ee7b7' : '#fb7185',
-                  border: `1px solid ${autoPasteEnabled ? '#10b981' : '#f43f5e'}`,
-                  borderRadius: '8px',
-                  padding: '5px 7px',
-                  fontSize: '10px',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {autoPasteEnabled ? <Unlock size={11} /> : <Lock size={11} />}
-                {autoPasteEnabled ? 'Auto ON' : 'Auto OFF'}
-              </button>
-              <button
-                onClick={() => setToolsView('entry_history')}
-                title="सभी एंट्री की History देखें व गलत एंट्री Delete"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  background: t.inputBg,
-                  color: t.textPrimary,
-                  border: `1px solid ${t.cardBorder}`,
-                  borderRadius: '8px',
-                  padding: '5px 9px',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <History size={13} />
-                History
-              </button>
-              <button
-                onClick={() => setToolsView('menu')}
-                title="कैटेगरी Tools खोलें"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  background: t.inputBg,
-                  color: t.textPrimary,
-                  border: `1px solid ${t.cardBorder}`,
-                  borderRadius: '8px',
-                  padding: '5px 10px',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <Wrench size={13} color={t.accent} />
-                Menu
-              </button>
-            </div>
+            <button
+              onClick={() => setToolsView('entry_history')}
+              title="View Transactions & Delete Patterns"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                background: t.inputBg,
+                color: t.textPrimary,
+                border: `1px solid ${t.cardBorder}`,
+                borderRadius: '999px',
+                padding: '4px 10px',
+                fontSize: '11px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <History size={12} color={t.accent} />
+              History
+            </button>
           </div>
 
           {/* Target Progress Bar (₹30,000 Game) */}
@@ -2752,7 +2686,7 @@ export default function App() {
                         <History size={18} color={t.accent} />
                         <div>
                           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>
-                            सभी एंट्री History (गलत एंट्री Delete)
+                            All Transactions History
                           </div>
                           <div style={{ fontSize: '11px', color: t.textSecondary }}>
                             View every entry with time & delete wrong ones
@@ -2769,9 +2703,87 @@ export default function App() {
                           borderRadius: '999px',
                         }}
                       >
-                        {categoryEntries.length}
+                        {historyTransactions.length}
                       </span>
                     </button>
+
+                    {/* Quick Settings inside Menu (Theme, Grid, Auto-Copy) */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr 1fr',
+                        gap: '6px',
+                        paddingTop: '4px',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setThemeMode((m) => (m === 'dark' ? 'light' : 'dark'))}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '5px',
+                          background: t.inputBg,
+                          border: `1px solid ${t.cardBorder}`,
+                          color: t.textPrimary,
+                          borderRadius: '10px',
+                          padding: '10px 6px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {themeMode === 'dark' ? <Sun size={13} color={t.accent} /> : <Moon size={13} color={t.accent} />}
+                        {themeMode === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setColumns((c) => (c === 5 ? 10 : 5))}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '5px',
+                          background: t.inputBg,
+                          border: `1px solid ${t.cardBorder}`,
+                          color: t.textPrimary,
+                          borderRadius: '10px',
+                          padding: '10px 6px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <LayoutGrid size={13} color={t.accent} />
+                        {columns} Cols
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = !autoPasteEnabled;
+                          setAutoPasteEnabled(next);
+                          showToast(next ? 'Auto-Copy ON' : 'Auto-Copy OFF');
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '5px',
+                          background: autoPasteEnabled ? t.accentSoft : t.inputBg,
+                          border: `1px solid ${autoPasteEnabled ? t.accent : t.cardBorder}`,
+                          color: autoPasteEnabled ? t.accentText : t.textSecondary,
+                          borderRadius: '10px',
+                          padding: '10px 6px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {autoPasteEnabled ? <Unlock size={13} /> : <Lock size={13} />}
+                        {autoPasteEnabled ? 'Auto ON' : 'Auto OFF'}
+                      </button>
+                    </div>
 
                     <button
                       onClick={() => setToolsView('failed_patterns')}
