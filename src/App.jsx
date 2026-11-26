@@ -94,6 +94,7 @@ function tryParseHarufLine(line) {
 
   const hasAB =
     /\b(?:ab|ba)\b/i.test(line) ||
+    /(?:^|[\s.,])(?:ab|ba)[\s.,]*\d/i.test(line) ||
     (/\b(?:andar|ander)\b/i.test(line) && /\b(?:bahar|bahr)\b/i.test(line)) ||
     (/(?:अंदर|अन्दर)/.test(line) && /बाहर/.test(line));
   let hasA =
@@ -179,7 +180,8 @@ function tryParseCrossingLine(line) {
     /(?:हरूफ|हरफ|बाहर|अंदर|अन्दर)/.test(line);
   const stuckTokens = line.match(/\b\d{4,9}\b/g) || [];
   const hasStuckCrossingDigits =
-    !hasHarufHint && stuckTokens.some((tok) => new Set(tok.split('')).size >= 2);
+    !hasHarufHint &&
+    stuckTokens.some((tok) => new Set(tok.split('')).size >= 2 && !/^[1-9]0{3,}$/.test(tok));
   const isFullCrossing = hasExplicitCrossing || (!isJodaCut && hasStuckCrossingDigits);
   if (!isJodaCut && !isFullCrossing) return null;
 
@@ -418,10 +420,10 @@ function analyzeWhatsAppText(raw) {
     line = line.replace(/\.{2,}$/, '').trim();
 
     const sepPalatMatch = line.match(
-      /(?:\b|(?<=\d))(?:with\s+)?(?:palat|palti|palt|plt|ptl)\b\s*(?:into|intu|ento|in|rs|@|=|×|x)?\s*[.=*:\s]*(\d+(?:\.\d+)?)(?:\s*(?:into|intu|ento|rs))?/i
+      /(?:\b|(?<=\d))(?:with\s+)?(?:palat|palti|palt|plt|ptl)(?:\b|(?=\d))\s*(?:into|intu|ento|in|rs|@|=|×|x)?\s*[.=*:\s]*(\d+(?:\.\d+)?)(?:\s*(?:into|intu|ento|rs))?/i
     );
     const hasPalatKeyword =
-      /(?:\b|(?<=\d))(?:with\s+palat|palt\s*k\s*sath|palat\s*ke\s*sath|palat|palti|palt|plt|ptl|wp)\b/i.test(line);
+      /(?:\b|(?<=\d))(?:with\s+palat|palt\s*k\s*sath|palat\s*ke\s*sath|palat|palti|palt|plt|ptl|wp)(?:\b|(?=\d))/i.test(line);
 
     if (hasPalatKeyword) {
       if (sepPalatMatch) {
@@ -440,12 +442,12 @@ function analyzeWhatsAppText(raw) {
           continue;
         } else {
           hasSamePalat = true;
-          line = line.replace(/(?:\b|(?<=\d))(?:with\s+)?(?:palat|palti|palt|plt|ptl)\b/gi, 'into').trim();
+          line = line.replace(/(?:\b|(?<=\d))(?:with\s+)?(?:palat|palti|palt|plt|ptl)(?:\b|(?=\d))/gi, 'into').trim();
         }
       } else {
         hasSamePalat = true;
         line = line
-          .replace(/(?:\b|(?<=\d))(?:with\s+palat|palt\s*k\s*sath|palat\s*ke\s*sath|palat|palti|palt|plt|ptl|wp)\b/gi, ' ')
+          .replace(/(?:\b|(?<=\d))(?:with\s+palat|palt\s*k\s*sath|palat\s*ke\s*sath|palat|palti|palt|plt|ptl|wp)(?:\b|(?=\d))/gi, ' ')
           .trim();
       }
     }
