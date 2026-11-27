@@ -57,6 +57,13 @@ function extractJodiList(str) {
   const tokens = str.match(/\d+/g) || [];
   const nums = [];
   for (const tok of tokens) {
+    if (tok.length >= 4 && tok.length % 2 === 0 && tok.length <= 12) {
+      for (let idx = 0; idx < tok.length; idx += 2) {
+        const n = normalizeJodiNumber(tok.slice(idx, idx + 2));
+        if (n !== null) nums.push(n);
+      }
+      continue;
+    }
     if (tok.length > 3 || (tok.length === 3 && tok !== '100')) continue;
     const n = normalizeJodiNumber(tok);
     if (n !== null) nums.push(n);
@@ -182,13 +189,20 @@ function tryParseCrossingLine(line) {
   const isJodaCut = /\b(?:jc|j\.c|joda\s*cut|jode\s*cat|jodi\s*cut)\b/i.test(line);
   const hasExplicitCrossing = /\b(?:cwj|cwz|crocing|crossing)\b/i.test(line);
   const hasHarufHint =
-    /\b(?:haruf|harf|harup|haroop|hrf|bahar|bahr|andar|ander|ab|ba)\b/i.test(line) ||
+    /\b(?:haruf|harf|harup|haroop|harap|hrf|bahar|bahr|andar|ander|ab|ba)\b/i.test(line) ||
     /(?:हरूफ|हरफ|बाहर|अंदर|अन्दर)/.test(line);
-  const lineWithoutParenAmts = line.replace(/\(\s*@?\s*\d+(?:\.\d+)?\s*(?:\*|into|intu|ento|in|rs|r)?\s*\)/gi, ' ');
-  const stuckTokens = lineWithoutParenAmts.match(/\b\d{4,9}\b/g) || [];
+  const lineWithoutAmts = line
+    .replace(/\(\s*@?\s*\d+(?:\.\d+)?\s*(?:\*|into|intu|ento|in|rs|r)?\s*\)/gi, ' ')
+    .replace(/(?:@|into|intu|ento|in|rs|r|=|\*)\s*\d+(?:\.\d+)?/gi, ' ');
+  const stuckTokens = lineWithoutAmts.match(/\b\d{4,9}\b/g) || [];
+  // Only treat stuck tokens as Crossing when all 4+ digits are unique AND it's the sole number token on the line (e.g. 1469@10, 8350@15),
+  // so comma/dot-separated jodi lists like "8223,,3298,,40,47,7442" are never misread as Crossing.
+  const otherJodiTokens = (lineWithoutAmts.match(/\b\d{2,3}\b/g) || []).length;
   const hasStuckCrossingDigits =
     !hasHarufHint &&
-    stuckTokens.some((tok) => new Set(tok.split('')).size >= 2 && !/^[1-9]\d?00+$/.test(tok));
+    stuckTokens.length === 1 &&
+    otherJodiTokens === 0 &&
+    stuckTokens.some((tok) => new Set(tok.split('')).size >= 4 && !/^[1-9]\d?00+$/.test(tok));
   const isFullCrossing = hasExplicitCrossing || (!isJodaCut && hasStuckCrossingDigits);
   if (!isJodaCut && !isFullCrossing) return null;
 
@@ -364,6 +378,10 @@ function analyzeWhatsAppText(raw) {
         /(\d)(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shri\s*ganesh|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)\s*$/i,
         '$1'
       )
+      .replace(
+        /^(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shri\s*ganesh|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)(?=\d)/i,
+        ''
+      )
       .replace(/'/g, ' ')
       .trim();
     if (!line) continue;
@@ -461,10 +479,11 @@ function analyzeWhatsAppText(raw) {
     line = line.replace(/\.{2,}$/, '').trim();
 
     const sepPalatMatch = line.match(
-      /(?:\b|(?<=\d))(?:with\s+)?(?:palat|palti|palt|plt|ptl)(?:\b|(?=\d))\s*(?:into|intu|ento|in|rs|@|=|×|x)?\s*[.=*:\s]*(\d+(?:\.\d+)?)(?:\s*(?:into|intu|ento|rs))?/i
+      /(?:\b|(?<=\d))(?:with\s+)?(?:palat|palti|palt|plt|ptl|p)(?:\b|(?=\d|\())\s*(?:into|intu|ento|in|rs|@|=|×|x)?\s*[.=*:\s(]*(\d+(?:\.\d+)?)\)?(?:\s*(?:into|intu|ento|rs))?/i
     );
     const hasPalatKeyword =
-      /(?:\b|(?<=\d))(?:with\s+palat|palt\s*k\s*sath|palat\s*ke\s*sath|palat|palti|palt|plt|ptl|wp)(?:\b|(?=\d))/i.test(line);
+      /(?:\b|(?<=\d))(?:with\s+palat|palt\s*k\s*sath|palat\s*ke\s*sath|palat|palti|palt|plt|ptl|wp)(?:\b|(?=\d))/i.test(line) ||
+      Boolean(sepPalatMatch);
 
     if (hasPalatKeyword) {
       if (sepPalatMatch) {
@@ -509,8 +528,8 @@ function analyzeWhatsAppText(raw) {
     let cleaned = line
       .replace(/[₹]/g, ' ')
       .replace(
-        /(\d+(?:\.\d+)?)[,\s.*]*(?:into|intu|ento|intoo|rs\.?|inr|rupe)\s*[/\-.,]*\s*$/i,
-        ' into $1'
+        /(^|[\s,=*\-/])(\d+(?:\.\d+)?)[,\s.*]*(?:into|intu|ento|intoo|rs\.?|inr|rupe)\s*[/\-.,]*\s*$/i,
+        '$1 into $2'
       )
       .replace(/\bF\b/gi, ' ')
       .replace(/\b(?:rs\.?|inr|rupe|rupy|ru|ki|ka|me|mai|mein|se|tak|ok|okk|ookk|clear)\b/gi, ' ')
@@ -522,6 +541,9 @@ function analyzeWhatsAppText(raw) {
       .replace(/^(.+?(?:into|intu|ento|intoo|in|@|\*|\))\s*[.=*:\s]*\d+(?:\.\d+)?)\s*=\s*\d+(?:\.\d+)?\s*$/i, '$1')
       // Normalize "(nums)*amt" into "nums into amt"
       .replace(/^\(([\d\s.,/_+\-\\*]+)\)\s*\*\s*(\d+(?:\.\d+)?)\s*$/, '$1 into $2')
+      // Strip orphan trailing "into" with no amount after it (e.g. "39.93.49.94..into")
+      .replace(/[.\s]*(?:into|intu|ento|intoo)\s*$/i, '')
+      .replace(/\.+$/, '')
       .trim();
 
     if (!cleaned) continue;
@@ -560,8 +582,17 @@ function analyzeWhatsAppText(raw) {
       continue;
     }
 
+    // 2c. Handle repeated "101010,,101010,,1010" amount-only lines when previous line had pending jodis, or cap 4-digit "1010" in sepMatch
+    if (/^(?:10){2,}(?:[,.\s]+(?:10){2,})*$/.test(cleaned) && pendingNumbers.length > 0) {
+      const combined = [...pendingNumbers];
+      pendingNumbers = [];
+      pendingRawLines = [];
+      pushEntries(combined, 10, separatePalatAmt ?? (hasSamePalat ? 10 : 0));
+      continue;
+    }
+
     // 3. Inline "(amount)" groups (supports (10*), (30r), (100rs into), (100)=200, and unclosed trailing "(300")
-    const parenGroups = [...cleaned.matchAll(/([\d\s.,/_+\-\\*]+?)\(\s*@?\s*(\d+(?:\.\d+)?)\s*(?:(?:\*|into|intu|ento|in|rs|r)\s*)*(?:\)|$)/gi)];
+    const parenGroups = [...cleaned.matchAll(/([\d\s.,/_+\-\\*!&]+?)\(\s*@?\s*(\d+(?:\.\d+)?)\s*(?:(?:\*|into|intu|ento|in|rs|r)\s*)*(?:\)|$)/gi)];
     if (parenGroups.length > 0) {
       let addedHere = false;
       for (const grp of parenGroups) {
@@ -597,25 +628,30 @@ function analyzeWhatsAppText(raw) {
       }
     }
 
-    // Lookahead: if line is a multi-number list (e.g. "60*48*75*21*13") followed later by an "into X" line, buffer it instead of treating the last number as amount
+    // Lookahead: if line is a multi-number list (e.g. "60*48*75*21*13" or "76=71=26=21=20=70" or "20.70.15") followed later by an amount line, buffer it instead of treating the last number as amount
     let deferToBuffer = false;
-    if (!/(?:=|\*\*|#|@|×)/.test(cleaned) && /^[\d\s.,/_+\-\\*]+$/.test(cleaned)) {
+    const isDotOnlyJodiList = /^\d{2}(?:\.\d{2}){2,}$/.test(cleaned);
+    if (isDotOnlyJodiList) {
+      deferToBuffer = true;
+    } else if (!/(?:\*\*|#|@|×)/.test(cleaned) && /^[\d\s.,/_+\-\\*=]+$/.test(cleaned)) {
       const candidateNums = extractJodiList(cleaned);
-      if (candidateNums.length >= 2) {
+      // Do not defer a simple single "num * amt" pair (like "05*50") just because a later line has "(20)"
+      const isSingleStarPair = /^\d{1,3}\s*\*\s*\d+(?:\.\d+)?$/.test(cleaned);
+      if (candidateNums.length >= 2 && !isSingleStarPair) {
         for (let k = i + 1; k < lines.length; k++) {
           const nxt = lines[k].trim();
           if (!nxt) continue;
-          if (/^(?:total|tot|ttl|tt|t|gt|टोटल|कुल)\b/i.test(nxt)) break;
-          if (/(?:into|intu|ento|intoo|in|rs|r)\s*[.=*:\s]*\d+|\(\s*@?\s*\d+\s*(?:into|in|rs)?\s*\)\s*$/i.test(nxt)) {
+          if (/^(?:total|tot|tol|ttl|tt|t|gt|टोटल|कुल)\b/i.test(nxt)) break;
+          if (/(?:into|intu|ento|intoo|in|rs|r)\s*[.=*:\s]*\d+|\d+\s*(?:into|intu|ento|intoo)|#\s*\d+|\(\s*@?\s*\d+\s*(?:into|in|rs)?\s*\)/i.test(nxt)) {
             deferToBuffer = true;
             break;
           }
-          if (!/^[\d\s.,/_+\-\\*]+$/.test(nxt)) break;
+          if (!/^[\d\s.,/_+\-\\*=]+$/.test(nxt)) break;
         }
       }
     }
 
-    // 5. Separator match
+    // 5. Separator match (never treat ".NN" in a pure 2-digit dot list as a decimal rupee amount)
     const sepMatch = !deferToBuffer && cleaned.match(
       /^([\d\s.,/_+\-\\*=*#]+?)\s*(?:=+|\*\*|\*|\/\/|\.\s*\/\s*\+|\/\+|\/|#|:|---|--|-|,{2,}|\.+|@|×|x)\s*(\d+(?:\.\d+)?)$/i
     );
@@ -651,7 +687,7 @@ function analyzeWhatsAppText(raw) {
 
     // 7. Buffer pure number lines for next line's "into X"
     const strippedWords = cleaned.replace(/[\p{L}\p{M}]+/gu, ' ').trim();
-    if (strippedWords && /^[\d\s.,/_+\-\\*]+$/.test(strippedWords)) {
+    if (strippedWords && /^[\d\s.,/_+\-\\*=!&]+$/.test(strippedWords)) {
       const buffered = extractJodiList(strippedWords);
       if (buffered.length > 0) {
         pendingNumbers.push(...buffered);
