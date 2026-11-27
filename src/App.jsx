@@ -4922,18 +4922,26 @@ export default function App() {
                 </div>
 
                 {pendingConfirm.failed.length > 0 && (
-                  <div
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPendingConfirm((prev) => (prev ? { ...prev, viewTab: 'failed' } : null))
+                    }
                     style={{
+                      width: '100%',
+                      textAlign: 'left',
                       fontSize: '11px',
+                      fontWeight: 700,
                       color: '#fb7185',
                       background: 'rgba(225, 29, 72, 0.12)',
                       border: '1px solid rgba(244, 63, 94, 0.4)',
                       borderRadius: '8px',
                       padding: '6px 9px',
+                      cursor: 'pointer',
                     }}
                   >
-                    ⚠️ {pendingConfirm.failed.length} लाइन समझ नहीं आई (फेल History में सेव होगी)
-                  </div>
+                    ⚠️ {pendingConfirm.failed.length} लाइन समझ नहीं आई — यहाँ क्लिक करके अलग देखें / कॉपी करें
+                  </button>
                 )}
 
                 {pendingConfirm.step === 2 ? (
@@ -5186,9 +5194,105 @@ export default function App() {
                       >
                         Parchi Line View ({(pendingConfirm.lineBreakdown || []).length})
                       </button>
+                      {pendingConfirm.failed.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPendingConfirm((prev) => (prev ? { ...prev, viewTab: 'failed' } : null))
+                          }
+                          style={{
+                            flex: 0.9,
+                            padding: '6px 8px',
+                            borderRadius: '7px',
+                            border: 'none',
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            background: pendingConfirm.viewTab === 'failed' ? '#e11d48' : 'transparent',
+                            color: pendingConfirm.viewTab === 'failed' ? '#ffffff' : '#fb7185',
+                          }}
+                        >
+                          ❌ Failed ({pendingConfirm.failed.length})
+                        </button>
+                      )}
                     </div>
 
-                    {pendingConfirm.viewTab === 'parchi' ? (
+                    {pendingConfirm.viewTab === 'failed' ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '11px', color: '#fb7185', fontWeight: 700 }}>
+                            Unparsed Lines (बाद में फिक्स करने के लिए)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const out = pendingConfirm.failed
+                                .map((f, idx) => `${idx + 1}. ${f.rawLine}`)
+                                .join('\n');
+                              try {
+                                await navigator.clipboard.writeText(out);
+                                showToast(`${pendingConfirm.failed.length} Failed Lines Copied ✓`);
+                              } catch {
+                                showToast('Copy failed');
+                              }
+                            }}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              padding: '5px 10px',
+                              borderRadius: '8px',
+                              border: '1px solid rgba(244, 63, 94, 0.6)',
+                              background: 'rgba(225, 29, 72, 0.16)',
+                              color: '#fda4af',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <Copy size={12} /> Copy Failed
+                          </button>
+                        </div>
+                        <div
+                          className="grid-scroll"
+                          style={{
+                            overflowY: 'auto',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '5px',
+                            maxHeight: '220px',
+                            paddingRight: '2px',
+                          }}
+                        >
+                          {pendingConfirm.failed.map((f, fIdx) => (
+                            <div
+                              key={`fail-tab-${fIdx}`}
+                              style={{
+                                background: 'rgba(225, 29, 72, 0.12)',
+                                border: '1px solid rgba(244, 63, 94, 0.45)',
+                                borderRadius: '8px',
+                                padding: '6px 9px',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: '11px',
+                                  fontFamily: 'monospace',
+                                  fontWeight: 700,
+                                  color: '#fda4af',
+                                  wordBreak: 'break-word',
+                                }}
+                              >
+                                {fIdx + 1}. {f.rawLine}
+                              </div>
+                              <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
+                                {f.reason}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : pendingConfirm.viewTab === 'parchi' ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ fontSize: '11px', color: t.textSecondary, fontWeight: 700 }}>
