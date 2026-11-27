@@ -83,17 +83,19 @@ function getPalatNumber(num) {
  * - "7.AB.(50)" -> digit 7 Andar & Bahar @ 50/10 = ₹5 each
  */
 function tryParseHarufLine(line) {
+  if (!/\d/.test(line)) return null;
   const hasHarufWord =
-    /\b(?:haruf|harf|harup|haroop|hrf|bahar|bahr|andar|ander)\b/i.test(line) ||
+    /(?:\b|(?<=\d))(?:haruf|harf|harup|haroop|harap|hrf|bahar|bahr|andar|ander)\b/i.test(line) ||
     /(?:हरूफ|हरफ|बाहर|अंदर|अन्दर)/.test(line);
-  const hasABToken = /(?:^|[\s.,(/])(?:AB|BA)(?:$|[\s.,)/])/i.test(line);
+  const hasABToken =
+    /(?:^|[\s.,(/]|\d)(?:AB|BA|A\s*\/\s*B|B\s*\/\s*A)(?:$|[\s.,)/=(])/i.test(line);
   const hasAttachedSide = /(?:^|[\s.,])(?:[AB][\s.,]*\d|\d[\s.,]*[AB])(?:$|[\s.,(/])/i.test(line);
   // 3+ repeated identical digits (e.g. "222=100", "1111 into 400") without A/B defaults to Bahar Haruf
   const hasRepeatedHarufDigits = /\b(\d)\1{2,}\b/.test(line);
   if (!hasHarufWord && !hasABToken && !hasAttachedSide && !hasRepeatedHarufDigits) return null;
 
   const hasAB =
-    /\b(?:ab|ba)\b/i.test(line) ||
+    /(?:^|[\s.,(/]|\d)(?:ab|ba|a\s*\/\s*b|b\s*\/\s*a)(?:$|[\s.,)/=(])/i.test(line) ||
     /(?:^|[\s.,])(?:ab|ba)[\s.,]*\d/i.test(line) ||
     (/\b(?:andar|ander)\b/i.test(line) && /\b(?:bahar|bahr)\b/i.test(line)) ||
     (/(?:अंदर|अन्दर)/.test(line) && /बाहर/.test(line));
@@ -116,9 +118,10 @@ function tryParseHarufLine(line) {
   // Extract total haruf amount and divide by 10 (e.g. 400 -> ₹40 per jodi, 100 -> ₹10)
   let amt = 0;
   let digitPart = line;
-  const parenAmt = line.match(/\(\s*@?\s*₹?\s*(\d+(?:\.\d+)?)\s*(?:into|in|rs|₹)?\s*\)/i);
+  const parenAmt = line.match(/\(\s*@?\s*₹?\s*(\d+(?:\.\d+)?)\s*(?:into|in|rs|₹)?\s*\)?/i);
   const intoAmt = line.match(/(?:into|intu|ento|in|rs\.?|inr|r|₹|@|=|×|x|\*)\s*[.=*:₹\s]*(\d+(?:\.\d+)?)/i);
-  const slashAmt = line.match(/\/\s*₹?\s*(\d+(?:\.\d+)?)/);
+  const slashAmt = line.match(/\/\s*₹?\s*(\d+(?:\.\d+)?)(?:\s*(?:haruf|harf|harup|haroop|harap|hrf|bahar|bahr|andar|ander|ab|ba|a|b))?\s*$/i);
+  const dotSepHaruf = line.match(/^(\d)\1{2,}[.\s]+(\d+(?:\.\d+)?)/);
 
   if (parenAmt) {
     amt = parseFloat(parenAmt[1]);
@@ -129,6 +132,9 @@ function tryParseHarufLine(line) {
   } else if (slashAmt) {
     amt = parseFloat(slashAmt[1]);
     digitPart = line.slice(0, slashAmt.index);
+  } else if (dotSepHaruf) {
+    digitPart = dotSepHaruf[1];
+    amt = parseFloat(dotSepHaruf[2]);
   } else {
     const trailingAmt = line.match(/(\d+(?:\.\d+)?)\s*(?:₹|rs\.?|inr|\/-|रुपये|रुपए)?\s*$/i);
     if (trailingAmt) {
@@ -323,13 +329,13 @@ function analyzeWhatsAppText(raw) {
 
     // Skip Total / Balance / Grand Total lines
     if (
-      /^(?:total|tot|ttl|tt|t|gt|all\s*total|hisab|balance|blnce|grand\s*total|टोटल|कुल)\b/i.test(
+      /^(?:total|tot|tol|ttl|tt|t|gt|all\s*total|hisab|balance|blnce|grand\s*total|टोटल|कुल)\b/i.test(
         line
       ) ||
       (/^\*?\(?\d+\s*₹?\]?\)*\s*[+\-*/=]*$/.test(line) &&
         (/[₹*()+=]/.test(line) ||
           (line.replace(/\D/g, '').length >= 3 && line.trim() !== '100'))) ||
-      /\d+\s*[-+]\s*\d+\s*=/.test(line) ||
+      /\b\d{3,}\s*[-+]\s*\d+\s*=|\d+\s*\+\s*\d+\s*=/.test(line) ||
       /\b\d+\s*\+\+/.test(line) ||
       /^\s*[+]{2,}\d+/.test(line)
     ) {
@@ -338,25 +344,34 @@ function analyzeWhatsAppText(raw) {
       continue;
     }
 
-    // Strip trailing total clauses like "टोटल 100", "Total = 200", or "To. 570"
-    // Also strip game tags (gb, gali, ds, fd, fb, sg, db) anywhere & normalize "in to" -> "into"
+    // Strip trailing/leading total clauses like "टोटल 100", "Total = 200", "460 total", or "280total"
+    // Also strip game tags (gb, gali, ds, fd, fb, sg, db, gzb, gaziyabad) anywhere & normalize "in to" -> "into"
     line = line
       .replace(
-        /(?:टोटल|कुल|grand\s*total|total|tot|ttl|sum|\bto\.)\s*[-:=*>₹.\s]*\d+(?:\.\d+)?(?:\s*(?:₹|rs\.?|inr|\/-|रुपये|रुपए))?/gi,
+        /(?:टोटल|कुल|grand\s*total|total|tot|tol|ttl|sum|\bto\.)\s*[-:=*>₹.\s]*\d+(?:\.\d+)?(?:\s*(?:₹|rs\.?|inr|\/-|रुपये|रुपए))?/gi,
+        ' '
+      )
+      .replace(
+        /\b\d+(?:\.\d+)?\s*(?:टोटल|कुल|grand\s*total|total|tot|tol|ttl)\b/gi,
         ' '
       )
       .replace(/\bin\s+to\b/gi, 'into')
       .replace(
-        /\b(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shri\s*ganesh|db|delhi\s*baza+r|gzb|ghaziabad)\b/gi,
+        /\b(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shri\s*ganesh|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)\b/gi,
         ' '
       )
       .replace(
-        /(\d)(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shri\s*ganesh|db|delhi\s*baza+r|gzb|ghaziabad)\s*$/i,
+        /(\d)(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shri\s*ganesh|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)\s*$/i,
         '$1'
       )
       .replace(/'/g, ' ')
       .trim();
     if (!line) continue;
+
+    // Skip standalone 3+ digit total left after stripping game/total words (e.g. "Gaziyabad 150" -> "150")
+    if (/^\d{3,}$/.test(line) && pendingNumbers.length === 0) {
+      continue;
+    }
 
     // Extract inline Haruf tokens when mixed on the same line with normal bracket groups (e.g. "33(400)A3(150)")
     const inlineHarufRe = /(?:^|[\s.,)])((?:AB|BA|[AB])[\s.]*\d+(?:[\s.]*\d+)*\s*\(\s*\d+(?:\.\d+)?\s*\))/gi;
@@ -412,26 +427,33 @@ function analyzeWhatsAppText(raw) {
     }
 
     // Check for Haruf line (A=Andar, B=Bahar, AB=Both, amount/10 per jodi)
-    const harufEntries = tryParseHarufLine(line);
-    if (harufEntries !== null) {
-      pendingNumbers = [];
-      pendingRawLines = [];
-      if (harufEntries.length > 0) {
-        results.push(...harufEntries);
-        const hTotal = harufEntries.reduce((s, x) => s + x.amount, 0);
-        specialPreviews.push({
-          kind: 'haruf',
-          raw: originalLine,
-          count: harufEntries.length,
-          perAmt: harufEntries[0].amount,
-          total: hTotal,
-          items: [...harufEntries].sort((a, b) => a.number - b.number),
-        });
-      } else {
-        failed.push({ rawLine: originalLine, reason: 'हरूफ में अंक या अमाउंट नहीं मिला' });
+    // Also split multi-side Haruf on the same line (e.g. "A /111/100    B. /111/100")
+    const multiHarufParts = line.split(/(?=(?:^|\s)[AB]\s*[./]\s*\d+)/i).map((s) => s.trim()).filter(Boolean);
+    const harufPartsToTry = multiHarufParts.length > 1 ? multiHarufParts : [line];
+    let handledAsHaruf = false;
+    for (const hPart of harufPartsToTry) {
+      const harufEntries = tryParseHarufLine(hPart);
+      if (harufEntries !== null) {
+        handledAsHaruf = true;
+        pendingNumbers = [];
+        pendingRawLines = [];
+        if (harufEntries.length > 0) {
+          results.push(...harufEntries);
+          const hTotal = harufEntries.reduce((s, x) => s + x.amount, 0);
+          specialPreviews.push({
+            kind: 'haruf',
+            raw: harufPartsToTry.length > 1 ? hPart : originalLine,
+            count: harufEntries.length,
+            perAmt: harufEntries[0].amount,
+            total: hTotal,
+            items: [...harufEntries].sort((a, b) => a.number - b.number),
+          });
+        } else {
+          failed.push({ rawLine: originalLine, reason: 'हरूफ में अंक या अमाउंट नहीं मिला' });
+        }
       }
-      continue;
     }
+    if (handledAsHaruf) continue;
 
     // Detect Palat modifiers on this line before cleaning
     let separatePalatAmt = null;
@@ -496,6 +518,10 @@ function analyzeWhatsAppText(raw) {
       .replace(/\]/g, ')')
       .replace(/\)+/g, ')')
       .replace(/\(+/g, '(')
+      // Strip trailing "=lineTotal" when an amount operator (into/@/*/paren) already precedes it (e.g. "17 71 into 50=100", "(83 38)*15=60", "94*@50=50")
+      .replace(/^(.+?(?:into|intu|ento|intoo|in|@|\*|\))\s*[.=*:\s]*\d+(?:\.\d+)?)\s*=\s*\d+(?:\.\d+)?\s*$/i, '$1')
+      // Normalize "(nums)*amt" into "nums into amt"
+      .replace(/^\(([\d\s.,/_+\-\\*]+)\)\s*\*\s*(\d+(?:\.\d+)?)\s*$/, '$1 into $2')
       .trim();
 
     if (!cleaned) continue;
@@ -534,8 +560,8 @@ function analyzeWhatsAppText(raw) {
       continue;
     }
 
-    // 3. Inline "(amount)" groups (supports (10*), (30r), (100)=200)
-    const parenGroups = [...cleaned.matchAll(/([\d\s.,/_+\-\\*]+?)\(\s*@?\s*(\d+(?:\.\d+)?)\s*(?:\*|into|intu|ento|in|rs|r)?\s*\)/gi)];
+    // 3. Inline "(amount)" groups (supports (10*), (30r), (100rs into), (100)=200, and unclosed trailing "(300")
+    const parenGroups = [...cleaned.matchAll(/([\d\s.,/_+\-\\*]+?)\(\s*@?\s*(\d+(?:\.\d+)?)\s*(?:(?:\*|into|intu|ento|in|rs|r)\s*)*(?:\)|$)/gi)];
     if (parenGroups.length > 0) {
       let addedHere = false;
       for (const grp of parenGroups) {
