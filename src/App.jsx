@@ -2908,114 +2908,207 @@ export default function App() {
           );
         })()}
 
-        {/* 1 to 100 Number Grid */}
+        {/* 1 to 100 Number Grid (or 2-Section Cut Table Boxes when Amount Filter is active) */}
         <main
           className="grid-scroll"
           style={{
             flex: 1,
             overflowY: 'auto',
             padding: '10px',
-            display: 'grid',
-            gridTemplateColumns: `repeat(${columns}, 1fr)`,
-            gap: columns === 5 ? '6px' : '4px',
+            display: minAmountFilter > 0 ? 'flex' : 'grid',
+            flexDirection: minAmountFilter > 0 ? 'column' : undefined,
+            gap: minAmountFilter > 0 ? '12px' : columns === 5 ? '6px' : '4px',
+            gridTemplateColumns: minAmountFilter > 0 ? undefined : `repeat(${columns}, 1fr)`,
             alignContent: 'start',
           }}
         >
           {(() => {
-            const visibleNums = Array.from({ length: 100 }, (_, i) => i + 1).filter((num) => {
-              if (minAmountFilter <= 0) return true;
-              const matches =
-                filterMode === 'exact'
-                  ? Math.abs(boxTotals[num] - minAmountFilter) < 0.01
-                  : boxTotals[num] >= minAmountFilter;
-              if (splitPart === 'remaining') {
-                return boxTotals[num] > 0 && !matches;
+            const renderNumberBox = (num) => {
+              const amt = boxTotals[num];
+              const hasAmt = amt > 0;
+              const tier = hasAmt ? tierByAmount[amt] : null;
+              const isHighest = tier === 'top';
+
+              let boxBg = t.cardBg;
+              let boxBorder = `1px solid ${t.cardBorder}`;
+              let numColor = t.textSecondary;
+              let amtColor = t.textMuted;
+
+              if (isHighest) {
+                boxBg = t.accentSoft;
+                boxBorder = `1.5px solid ${t.accent}`;
+                numColor = t.accentText;
+                amtColor = t.textPrimary;
+              } else if (hasAmt) {
+                boxBg = t.accentSoft;
+                boxBorder = `1px solid ${t.accent}`;
+                numColor = t.accentText;
+                amtColor = t.textPrimary;
               }
-              return matches;
-            });
-            if (visibleNums.length === 0) {
+
               return (
-                <div
+                <button
+                  key={num}
+                  onClick={() => setSelectedBox(num)}
                   style={{
-                    gridColumn: '1 / -1',
-                    textAlign: 'center',
-                    padding: '28px 12px',
-                    color: t.textMuted,
-                    fontSize: '12px',
-                    fontWeight: 600,
+                    background: boxBg,
+                    border: boxBorder,
+                    boxShadow: isHighest
+                      ? '0 0 12px rgba(245, 158, 11, 0.45)'
+                      : 'none',
+                    borderRadius: '10px',
+                    padding: columns === 5 ? '8px 4px' : '6px 2px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    minHeight: columns === 5 ? '54px' : '42px',
+                    position: 'relative',
                   }}
                 >
-                  {activeCategory} में {filterMode === 'exact' ? `ठीक ₹${minAmountFilter}` : `₹${minAmountFilter}+`} वाला कोई नंबर नहीं है।
-                </div>
+                  <span
+                    style={{
+                      fontSize: columns === 5 ? '13px' : '10px',
+                      fontWeight: isHighest ? 900 : 700,
+                      color: numColor,
+                    }}
+                  >
+                    {isHighest ? `👑${String(num).padStart(2, '0')}` : String(num).padStart(2, '0')}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: columns === 5 ? '11px' : '9px',
+                      fontWeight: hasAmt ? 700 : 400,
+                      color: amtColor,
+                      marginTop: '2px',
+                      wordBreak: 'break-all',
+                    }}
+                  >
+                    {hasAmt ? `₹${amt.toLocaleString('en-IN')}` : '—'}
+                  </span>
+                </button>
               );
-            }
-            return visibleNums.map((num) => {
-            const amt = boxTotals[num];
-            const hasAmt = amt > 0;
-            const tier = hasAmt ? tierByAmount[amt] : null;
-            const isHighest = tier === 'top';
+            };
 
-            let boxBg = t.cardBg;
-            let boxBorder = `1px solid ${t.cardBorder}`;
-            let numColor = t.textSecondary;
-            let amtColor = t.textMuted;
-
-            if (isHighest) {
-              boxBg = t.accentSoft;
-              boxBorder = `1.5px solid ${t.accent}`;
-              numColor = t.accentText;
-              amtColor = t.textPrimary;
-            } else if (hasAmt) {
-              boxBg = t.accentSoft;
-              boxBorder = `1px solid ${t.accent}`;
-              numColor = t.accentText;
-              amtColor = t.textPrimary;
+            if (minAmountFilter <= 0) {
+              return Array.from({ length: 100 }, (_, i) => i + 1).map(renderNumberBox);
             }
 
-            return (
-              <button
-                key={num}
-                onClick={() => setSelectedBox(num)}
+            const allPlayed = Array.from({ length: 100 }, (_, i) => i + 1).filter(
+              (n) => boxTotals[n] > 0
+            );
+            const isMatch = (n) =>
+              filterMode === 'exact'
+                ? Math.abs(boxTotals[n] - minAmountFilter) < 0.01
+                : boxTotals[n] >= minAmountFilter;
+            const upperNums = allPlayed.filter(isMatch);
+            const lowerNums = allPlayed.filter((n) => !isMatch(n));
+            const upperSum = upperNums.reduce((s, n) => s + boxTotals[n], 0);
+            const lowerSum = lowerNums.reduce((s, n) => s + boxTotals[n], 0);
+
+            const copySection = async (list, sum, title) => {
+              if (list.length === 0) {
+                showToast('Copy के लिए कोई नंबर नहीं है');
+                return;
+              }
+              const lines = [
+                `*${activeCategory} — ${title}*`,
+                ...list.map((n) => `${String(n).padStart(2, '0')} = ₹${boxTotals[n]}`),
+                `----------------`,
+                `Total (${list.length} Jodis): ₹${sum.toLocaleString('en-IN')}`,
+              ];
+              try {
+                await navigator.clipboard.writeText(lines.join('\n'));
+                showToast(`${title}: ${list.length}J (₹${sum.toLocaleString('en-IN')}) Copied ✓`);
+              } catch {
+                showToast('Copy failed');
+              }
+            };
+
+            const sections = [
+              {
+                key: 'upper',
+                title: filterMode === 'exact' ? `🎯 =₹${minAmountFilter} Wale` : `🎯 ₹${minAmountFilter}+ Upar`,
+                nums: upperNums,
+                sum: upperSum,
+                accent: t.accent,
+                accentText: t.accentText,
+                emptyMsg: `${activeCategory} में ${filterMode === 'exact' ? `₹${minAmountFilter}` : `₹${minAmountFilter}+`} वाला कोई नंबर नहीं है।`,
+              },
+              {
+                key: 'lower',
+                title: filterMode === 'exact' ? `📦 ≠₹${minAmountFilter} (Baki)` : `📦 <₹${minAmountFilter} Niche (Baki)`,
+                nums: lowerNums,
+                sum: lowerSum,
+                accent: '#38bdf8',
+                accentText: '#38bdf8',
+                emptyMsg: `${activeCategory} में इसके अलावा कोई और नंबर नहीं है।`,
+              },
+            ];
+
+            const orderedSections =
+              splitPart === 'remaining' ? [sections[1], sections[0]] : sections;
+
+            return orderedSections.map((sec) => (
+              <div
+                key={sec.key}
                 style={{
-                  background: boxBg,
-                  border: boxBorder,
-                  boxShadow: isHighest
-                    ? '0 0 12px rgba(245, 158, 11, 0.45)'
-                    : 'none',
-                  borderRadius: '10px',
-                  padding: columns === 5 ? '8px 4px' : '6px 2px',
+                  background: t.inputBg,
+                  border: `1.5px solid ${sec.accent}`,
+                  borderRadius: '14px',
+                  padding: '8px',
                   display: 'flex',
                   flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  minHeight: columns === 5 ? '54px' : '42px',
-                  position: 'relative',
+                  gap: '8px',
                 }}
               >
-                <span
-                  style={{
-                    fontSize: columns === 5 ? '13px' : '10px',
-                    fontWeight: isHighest ? 900 : 700,
-                    color: numColor,
-                  }}
-                >
-                  {isHighest ? `👑${String(num).padStart(2, '0')}` : String(num).padStart(2, '0')}
-                </span>
-                <span
-                  style={{
-                    fontSize: columns === 5 ? '11px' : '9px',
-                    fontWeight: hasAmt ? 700 : 400,
-                    color: amtColor,
-                    marginTop: '2px',
-                    wordBreak: 'break-all',
-                  }}
-                >
-                  {hasAmt ? `₹${amt.toLocaleString('en-IN')}` : '—'}
-                </span>
-              </button>
-            );
-          });
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: sec.accentText }}>
+                      {sec.title}
+                    </span>
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: '#fbbf24' }}>
+                      {sec.nums.length}J • ₹{sec.sum.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => copySection(sec.nums, sec.sum, sec.title)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '4px 9px',
+                      borderRadius: '999px',
+                      border: `1px solid ${sec.accent}`,
+                      background: t.cardBg,
+                      color: sec.accentText,
+                      fontSize: '10px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Copy size={11} /> Copy
+                  </button>
+                </div>
+                {sec.nums.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '12px 6px', fontSize: '11px', color: t.textMuted }}>
+                    {sec.emptyMsg}
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: `repeat(${columns}, 1fr)`,
+                      gap: columns === 5 ? '6px' : '4px',
+                    }}
+                  >
+                    {sec.nums.map(renderNumberBox)}
+                  </div>
+                )}
+              </div>
+            ));
           })()}
         </main>
 
