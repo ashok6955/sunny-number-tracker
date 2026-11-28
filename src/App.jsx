@@ -923,6 +923,7 @@ export default function App() {
   const [motiMinAmount, setMotiMinAmount] = useState(0);
   const [minAmountFilter, setMinAmountFilter] = useState(0);
   const [filterMode, setFilterMode] = useState('exact'); // 'exact' (===) | 'min' (>=)
+  const [splitPart, setSplitPart] = useState('selected'); // 'selected' | 'remaining'
   const [customMinFilter, setCustomMinFilter] = useState('');
   const [cutApplied, setCutApplied] = useState(false); // 0 = all, 300 = 30K (1%), 1000 = 1L (1%)
   const [chartOwnerName, setChartOwnerName] = useState(() => localStorage.getItem('sunny_tracker_owner_v1') || 'Sunny');
@@ -2627,137 +2628,192 @@ export default function App() {
           </div>
         )}
 
-        {/* Amount Filter Bar (Enter any amount + Exact=/Min+ + Back to All) */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '5px 10px 2px',
-            flexShrink: 0,
-          }}
-        >
-          <input
-            type="number"
-            inputMode="numeric"
-            placeholder="₹ Amount"
-            value={customMinFilter}
-            onChange={(e) => {
-              const v = e.target.value;
-              setCustomMinFilter(v);
-              const n = parseFloat(v);
-              setMinAmountFilter(Number.isFinite(n) && n > 0 ? n : 0);
-            }}
-            style={{
-              width: '86px',
-              padding: '4px 9px',
-              borderRadius: '999px',
-              fontSize: '11px',
-              fontWeight: 700,
-              background: t.inputBg,
-              color: t.textPrimary,
-              border: `1px solid ${minAmountFilter > 0 ? t.accent : t.cardBorder}`,
-              outline: 'none',
-            }}
-          />
-          <button
-            type="button"
-            title="Switch Exact (=) / Minimum (+)"
-            onClick={() => setFilterMode((m) => (m === 'exact' ? 'min' : 'exact'))}
-            style={{
-              padding: '4px 9px',
-              borderRadius: '999px',
-              fontSize: '10px',
-              fontWeight: 800,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              background: t.inputBg,
-              color: t.accentText,
-              border: `1px solid ${t.cardBorder}`,
-            }}
-          >
-            {filterMode === 'exact' ? 'Exact =' : 'Min +'}
-          </button>
-          {minAmountFilter > 0 && (() => {
-            const matched = Array.from({ length: 100 }, (_, i) => i + 1).filter((n) =>
-              filterMode === 'exact'
-                ? Math.abs(boxTotals[n] - minAmountFilter) < 0.01
-                : boxTotals[n] >= minAmountFilter
-            );
-            const matchedSum = matched.reduce((s, n) => s + boxTotals[n], 0);
-            return (
-              <>
-                <span
-                  style={{
-                    fontSize: '11px',
-                    fontWeight: 800,
-                    color: '#fbbf24',
-                    whiteSpace: 'nowrap',
+        {/* 2-Part Split Amount Filter Bar (Selected vs Remaining + Copy + Back) */}
+        {(() => {
+          const hasFilter = minAmountFilter > 0;
+          const allPlayed = hasFilter
+            ? Array.from({ length: 100 }, (_, i) => i + 1).filter((n) => boxTotals[n] > 0)
+            : [];
+          const isMatch = (n) =>
+            filterMode === 'exact'
+              ? Math.abs(boxTotals[n] - minAmountFilter) < 0.01
+              : boxTotals[n] >= minAmountFilter;
+          const selectedNums = hasFilter ? allPlayed.filter(isMatch) : [];
+          const remainingNums = hasFilter ? allPlayed.filter((n) => !isMatch(n)) : [];
+          const selectedSum = selectedNums.reduce((s, n) => s + boxTotals[n], 0);
+          const remainingSum = remainingNums.reduce((s, n) => s + boxTotals[n], 0);
+          const activeList = splitPart === 'remaining' ? remainingNums : selectedNums;
+          const activeSum = splitPart === 'remaining' ? remainingSum : selectedSum;
+          const partLabel =
+            splitPart === 'remaining'
+              ? `Remaining (${filterMode === 'exact' ? `≠₹${minAmountFilter}` : `<₹${minAmountFilter}`})`
+              : filterMode === 'exact'
+              ? `₹${minAmountFilter}`
+              : `₹${minAmountFilter}+`;
+
+          return (
+            <div style={{ padding: '5px 10px 2px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="₹ Amount"
+                  value={customMinFilter}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setCustomMinFilter(v);
+                    const n = parseFloat(v);
+                    setMinAmountFilter(Number.isFinite(n) && n > 0 ? n : 0);
+                    setSplitPart('selected');
                   }}
-                >
-                  {matched.length}J • ₹{matchedSum.toLocaleString('en-IN')}
-                </span>
-                {matched.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const label = filterMode === 'exact' ? `₹${minAmountFilter}` : `₹${minAmountFilter}+`;
-                      const lines = [
-                        `*${activeCategory} (${label})*`,
-                        ...matched.map((n) => `${String(n).padStart(2, '0')} = ₹${boxTotals[n]}`),
-                        `----------------`,
-                        `Total (${matched.length} Jodis): ₹${matchedSum.toLocaleString('en-IN')}`,
-                      ];
-                      try {
-                        await navigator.clipboard.writeText(lines.join('\n'));
-                        showToast(`${matched.length} Jodis (₹${matchedSum.toLocaleString('en-IN')}) Copied ✓`);
-                      } catch {
-                        showToast('Copy failed');
-                      }
-                    }}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      padding: '4px 9px',
-                      borderRadius: '999px',
-                      fontSize: '10px',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                      background: t.accentSoft,
-                      color: t.accentText,
-                      border: `1px solid ${t.accent}`,
-                    }}
-                  >
-                    <Copy size={11} /> Copy
-                  </button>
-                )}
+                  style={{
+                    width: '86px',
+                    padding: '4px 9px',
+                    borderRadius: '999px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    background: t.inputBg,
+                    color: t.textPrimary,
+                    border: `1px solid ${hasFilter ? t.accent : t.cardBorder}`,
+                    outline: 'none',
+                  }}
+                />
                 <button
                   type="button"
-                  onClick={() => {
-                    setMinAmountFilter(0);
-                    setCustomMinFilter('');
-                  }}
+                  title="Switch Exact (=) / Minimum (+)"
+                  onClick={() => setFilterMode((m) => (m === 'exact' ? 'min' : 'exact'))}
                   style={{
-                    marginLeft: 'auto',
-                    padding: '4px 10px',
+                    padding: '4px 9px',
                     borderRadius: '999px',
                     fontSize: '10px',
                     fontWeight: 800,
                     cursor: 'pointer',
                     whiteSpace: 'nowrap',
-                    background: '#e11d48',
-                    color: '#ffffff',
-                    border: 'none',
+                    background: t.inputBg,
+                    color: t.accentText,
+                    border: `1px solid ${t.cardBorder}`,
                   }}
                 >
-                  ← Back
+                  {filterMode === 'exact' ? 'Exact =' : 'Min +'}
                 </button>
-              </>
-            );
-          })()}
-        </div>
+                {hasFilter && (
+                  <>
+                    {activeList.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const lines = [
+                            `*${activeCategory} — ${partLabel}*`,
+                            ...activeList.map((n) => `${String(n).padStart(2, '0')} = ₹${boxTotals[n]}`),
+                            `----------------`,
+                            `Total (${activeList.length} Jodis): ₹${activeSum.toLocaleString('en-IN')}`,
+                          ];
+                          try {
+                            await navigator.clipboard.writeText(lines.join('\n'));
+                            showToast(`${activeList.length} Jodis (₹${activeSum.toLocaleString('en-IN')}) Copied ✓`);
+                          } catch {
+                            showToast('Copy failed');
+                          }
+                        }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '4px 9px',
+                          borderRadius: '999px',
+                          fontSize: '10px',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          background: t.accentSoft,
+                          color: t.accentText,
+                          border: `1px solid ${t.accent}`,
+                        }}
+                      >
+                        <Copy size={11} /> Copy
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMinAmountFilter(0);
+                        setCustomMinFilter('');
+                        setSplitPart('selected');
+                      }}
+                      style={{
+                        marginLeft: 'auto',
+                        padding: '4px 10px',
+                        borderRadius: '999px',
+                        fontSize: '10px',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        background: '#e11d48',
+                        color: '#ffffff',
+                        border: 'none',
+                      }}
+                    >
+                      ← Back
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {hasFilter && (
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '6px',
+                    background: t.inputBg,
+                    padding: '4px',
+                    borderRadius: '11px',
+                    border: `1px solid ${t.cardBorder}`,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setSplitPart('selected')}
+                    style={{
+                      padding: '5px 8px',
+                      borderRadius: '8px',
+                      border: splitPart === 'selected' ? `1px solid ${t.accent}` : '1px solid transparent',
+                      background: splitPart === 'selected' ? t.accentSoft : 'transparent',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                    }}
+                  >
+                    <div style={{ fontSize: '10px', fontWeight: 700, color: splitPart === 'selected' ? t.accentText : t.textMuted }}>
+                      🎯 {filterMode === 'exact' ? `₹${minAmountFilter} Wale` : `₹${minAmountFilter}+ Wale`}
+                    </div>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: t.textPrimary }}>
+                      {selectedNums.length}J • ₹{selectedSum.toLocaleString('en-IN')}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSplitPart('remaining')}
+                    style={{
+                      padding: '5px 8px',
+                      borderRadius: '8px',
+                      border: splitPart === 'remaining' ? '1px solid #38bdf8' : '1px solid transparent',
+                      background: splitPart === 'remaining' ? 'rgba(56, 189, 248, 0.14)' : 'transparent',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                    }}
+                  >
+                    <div style={{ fontSize: '10px', fontWeight: 700, color: splitPart === 'remaining' ? '#38bdf8' : t.textMuted }}>
+                      📦 Baki ({filterMode === 'exact' ? `≠₹${minAmountFilter}` : `<₹${minAmountFilter}`})
+                    </div>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: t.textPrimary }}>
+                      {remainingNums.length}J • ₹{remainingSum.toLocaleString('en-IN')}
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* 1 to 100 Number Grid */}
         <main
@@ -2775,9 +2831,14 @@ export default function App() {
           {(() => {
             const visibleNums = Array.from({ length: 100 }, (_, i) => i + 1).filter((num) => {
               if (minAmountFilter <= 0) return true;
-              return filterMode === 'exact'
-                ? Math.abs(boxTotals[num] - minAmountFilter) < 0.01
-                : boxTotals[num] >= minAmountFilter;
+              const matches =
+                filterMode === 'exact'
+                  ? Math.abs(boxTotals[num] - minAmountFilter) < 0.01
+                  : boxTotals[num] >= minAmountFilter;
+              if (splitPart === 'remaining') {
+                return boxTotals[num] > 0 && !matches;
+              }
+              return matches;
             });
             if (visibleNums.length === 0) {
               return (
