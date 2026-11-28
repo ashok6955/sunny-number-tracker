@@ -346,16 +346,17 @@ function analyzeWhatsAppText(raw) {
       continue;
     }
 
-    // Skip Total / Balance / Grand Total lines
+    // Skip Total / Balance / Grand Total lines (only when the line doesn't contain actual bet groups like "(200)" or "jc")
+    const hasInlineBetSyntax = /\(\s*\d+|\bjc\b|\bse\b|\binto\b|\bintu\b/i.test(line);
     if (
       /^(?:total|tot|tol|ttl|tlt|tt\d*|t\d+|t|gt|all\s*total|hisab|balance|blnce|grand\s*total|टोटल|कुल)\b/i.test(
         line
       ) ||
       (/^\*?\(?\d+\s*₹?\]?\)*\s*[+\-*/=]*$/.test(line) &&
+        !(pendingNumbers.length > 0 && /^\d{4,16}$/.test(line) && line.length % 2 === 0 && line.length / 2 === pendingNumbers.length) &&
         (/[₹*()+=]/.test(line) ||
           (line.replace(/\D/g, '').length >= 3 && line.trim() !== '100'))) ||
-      /\b\d{3,}\s*[-+]\s*\d+\s*=|\d+\s*\+\s*\d+\s*=/.test(line) ||
-      /\b\d+\s*\+\+/.test(line) ||
+      (!hasInlineBetSyntax && (/\b\d{3,}\s*[-+]\s*\d+\s*=|\d+\s*\+\s*\d+\s*=/.test(line) || /\b\d+\s*\+\+/.test(line))) ||
       /^\s*[+]{2,}\d+/.test(line)
     ) {
       pendingNumbers = [];
@@ -363,11 +364,12 @@ function analyzeWhatsAppText(raw) {
       continue;
     }
 
-    // Strip trailing/leading total clauses like "टोटल 100", "Total = 200", "460 total", or "280total"
-    // Also strip game tags (gb, gali, ds, fd, fb, sg, db, gzb, gaziyabad) anywhere & normalize "in to" -> "into"
+    // Strip trailing/leading total & balance clauses like "टोटल 100", "Total = 200", "210,total=410++...", "*2000--340=1660+++*"
+    // Also strip game tags (gb, gali, ds, fd, fb, sg, db, gzb, gaziyabad, फरीदाबाद, दिसावर) anywhere & normalize "in to" -> "into"
     line = line
+      .replace(/\*?\s*\d{3,}\s*--?\s*\d+\s*=\s*\d+\+{2,}\*?/gi, ' ')
       .replace(
-        /[,\s=]*(?:टोटल|कुल|grand\s*total|total|tot|tol|ttl|tlt|sum|\bto\.)\s*[-:=*>₹.\s]*\d+(?:\.\d+)?(?:\s*(?:₹|rs\.?|inr|\/-|रुपये|रुपए))?.*$/gi,
+        /[,\s=]*(?:\b\d+[,\s]*)?(?:टोटल|कुल|grand\s*total|total|tot|tol|ttl|tlt|sum|\bto\.)\s*[-:=*>₹.\s]*\d+(?:\.\d+)?(?:\s*(?:₹|rs\.?|inr|\/-|रुपये|रुपए))?.*$/gi,
         ' '
       )
       .replace(
@@ -375,17 +377,18 @@ function analyzeWhatsAppText(raw) {
         ' '
       )
       .replace(/\bin\s+to\b/gi, 'into')
-      .replace(/(\d)\s*ki\b/gi, '$1 into ')
+      .replace(/(\d+)\s*ki\b/gi, ' into $1 ')
+      .replace(/(?:फरीदाबाद|दिसावर|गाजियाबाद|गली|श्री\s*गणेश|दिल्ली\s*बाजार)/g, ' ')
       .replace(
-        /\b(?:gb|gl|gali|ds|disawar|desawar|दिसावर|fd|fbd|fb|faridabad|फरीदाबाद|sg|shree?\s*ganesh(?:\s+m)?|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)\b/gi,
+        /\b(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shree?\s*ganesh(?:\s+m)?|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)\b/gi,
         ' '
       )
       .replace(
-        /(\d)(?:gb|gl|gali|ds|disawar|desawar|दिसावर|fd|fbd|fb|faridabad|फरीदाबाद|sg|shree?\s*ganesh(?:\s+m)?|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)\s*$/i,
+        /(\d)(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shree?\s*ganesh(?:\s+m)?|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)\s*$/i,
         '$1'
       )
       .replace(
-        /^(?:gb|gl|gali|ds|disawar|desawar|दिसावर|fd|fbd|fb|faridabad|फरीदाबाद|sg|shree?\s*ganesh(?:\s+m)?|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)(?=\d)/i,
+        /^(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shree?\s*ganesh(?:\s+m)?|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)(?=\d)/i,
         ''
       )
       .replace(/'/g, ' ')
@@ -423,6 +426,37 @@ function analyzeWhatsAppText(raw) {
       }
       line = strippedLine;
       if (!line) continue;
+    }
+
+    // Multi-segment JC + "A se B=amt" range on one line (e.g. "3957=10//120 jc  2468=10//120 jc.  89 se 98=10//100")
+    if (/\b\d{1,2}\s+se\s+\d{1,2}\s*=|\b(?:jc|joda\s*cut)\b/i.test(line)) {
+      const segs = [];
+      let handledMulti = false;
+      for (const jm of line.matchAll(/(\d{3,9})\s*=\s*(\d+(?:\.\d+)?)(?:\/\/\d+)?\s*(?:jc|joda\s*cut)\b/gi)) {
+        const jcRes = tryParseCrossingLine(`${jm[1]}=${jm[2]} jc`);
+        if (jcRes && jcRes.length > 0) {
+          handledMulti = true;
+          segs.push(...jcRes);
+        }
+      }
+      for (const rm of line.matchAll(/\b(\d{1,2})\s+se\s+(\d{1,2})\s*=\s*(\d+(?:\.\d+)?)(?:\/\/\d+)?/gi)) {
+        const a = parseInt(rm[1], 10);
+        const b = parseInt(rm[2], 10);
+        const amt = parseFloat(rm[3]);
+        if (amt > 0 && b >= a && b - a <= 50) {
+          handledMulti = true;
+          for (let n = a; n <= b; n++) {
+            const norm = normalizeJodiNumber(String(n));
+            if (norm !== null) segs.push({ number: norm, amount: amt });
+          }
+        }
+      }
+      if (handledMulti && segs.length > 0) {
+        pendingNumbers = [];
+        pendingRawLines = [];
+        results.push(...segs);
+        continue;
+      }
     }
 
     // Check for Joda Cut (JC) or Full Crossing (crossing / cwj / cwz)
@@ -545,12 +579,14 @@ function analyzeWhatsAppText(raw) {
         /(^|[\s,=*\-/.])(\d+(?:\.\d+)?)[,\s.*]*(?:into|intu|ento|intoo|nitu|rs\.?|inr|rupe|rupay|rupy)\s*[/\-.,]*\s*$/i,
         '$1 into $2'
       )
-      .replace(/\bF\b/gi, ' ')
+      .replace(/\bF\b|\bm\b/gi, ' ')
       .replace(/\b(?:rs\.?|inr)(?!\s*[.=*:\s,(]*\d)\b|\b(?:rupy|ru|ki|ka|me|mai|mein|se|tak|ok|okk|ookk|clear)\b/gi, ' ')
       .replace(/\/-/g, ' ')
       .replace(/\]/g, ')')
       .replace(/\)+/g, ')')
       .replace(/\(+/g, '(')
+      // Strip trailing "=lineTotal" or "Rs=340"
+      .replace(/\s*\brs\s*=\s*\d+(?:\.\d+)?\s*$/i, '')
       // Strip trailing "=lineTotal" when an amount operator (into/@/*/paren) already precedes it (e.g. "17 71 into 50=100", "(83 38)*15=60", "94*@50=50")
       .replace(/^(.+?(?:into|intu|ento|intoo|in|@|\*|\))\s*[.=*:\s]*\d+(?:\.\d+)?)\s*=\s*\d+(?:\.\d+)?\s*$/i, '$1')
       // Normalize "(nums)*amt" into "nums into amt"
@@ -598,7 +634,7 @@ function analyzeWhatsAppText(raw) {
       continue;
     }
 
-    // 2c. Handle repeated "101010,,101010,,1010" amount-only lines when previous line had pending jodis, or cap 4-digit "1010" in sepMatch
+    // 2c. Handle repeated "101010,,101010,,1010" or paired "10101030" amount-only lines when previous line had pending jodis
     if (/^(?:10){2,}(?:[,.\s]+(?:10){2,})*$/.test(cleaned) && pendingNumbers.length > 0) {
       const combined = [...pendingNumbers];
       pendingNumbers = [];
@@ -606,9 +642,20 @@ function analyzeWhatsAppText(raw) {
       pushEntries(combined, 10, separatePalatAmt ?? (hasSamePalat ? 10 : 0));
       continue;
     }
+    if (/^\d{4,16}$/.test(cleaned) && cleaned.length % 2 === 0 && pendingNumbers.length > 0 && cleaned.length / 2 === pendingNumbers.length) {
+      const pairedAmts = cleaned.match(/.{2}/g).map((x) => parseInt(x, 10));
+      if (pairedAmts.every((a) => a > 0)) {
+        for (let pi = 0; pi < pendingNumbers.length; pi++) {
+          pushEntries([pendingNumbers[pi]], pairedAmts[pi], separatePalatAmt ?? (hasSamePalat ? pairedAmts[pi] : 0));
+        }
+        pendingNumbers = [];
+        pendingRawLines = [];
+        continue;
+      }
+    }
 
-    // 3. Inline "(amount)" groups (supports (10*), (30r), (100rs into), (100)=200, 26=(100), (20.), and unclosed trailing "(300")
-    const parenGroups = [...cleaned.matchAll(/([\d\s.,/_+\-\\*!&=]+?)\(\s*@?\s*(\d+(?:\.\d+)?)\s*\.?\s*(?:(?:\*|into|intu|ento|in|rs|r)\s*)*(?:\)|$)/gi)];
+    // 3. Inline "(amount)" groups (supports (10*), (30r), (100rs into), (200 nitu), (100)=200, 26=(100), (20.), and unclosed trailing "(300")
+    const parenGroups = [...cleaned.matchAll(/([\d\s.,/_+\-\\*!&=]+?)\(\s*@?\s*(\d+(?:\.\d+)?)\s*\.?\s*(?:(?:\*|into|intu|ento|nitu|in|rs|r)\s*)*(?:\)|$)/gi)];
     if (parenGroups.length > 0) {
       let addedHere = false;
       for (const grp of parenGroups) {
@@ -647,9 +694,10 @@ function analyzeWhatsAppText(raw) {
     // Lookahead: if line is a multi-number list (e.g. "60*48*75*21*13" or "76=71=26=21=20=70" or "20.70.15") followed later by an amount line, buffer it instead of treating the last number as amount
     let deferToBuffer = false;
     const isDotOnlyJodiList = /^\d{2}(?:\.\d{2}){2,}$/.test(cleaned);
+    const eqCount = (cleaned.match(/=/g) || []).length;
     if (isDotOnlyJodiList) {
       deferToBuffer = true;
-    } else if (!/(?:\*\*|#|@|×)/.test(cleaned) && /^[\d\s.,/_+\-\\*=]+$/.test(cleaned)) {
+    } else if (!/(?:\*\*|#|@|×)/.test(cleaned) && /^[\d\s.,/_+\-\\*=]+$/.test(cleaned) && eqCount !== 1) {
       const candidateNums = extractJodiList(cleaned);
       // Do not defer a simple single "num * amt" pair (like "05*50") just because a later line has "(20)"
       const isSingleStarPair = /^\d{1,3}\s*\*\s*\d+(?:\.\d+)?$/.test(cleaned);
@@ -669,7 +717,7 @@ function analyzeWhatsAppText(raw) {
 
     // 5. Separator match (never treat ".NN" in a pure 2-digit dot list as a decimal rupee amount)
     const sepMatch = !deferToBuffer && cleaned.match(
-      /^([\d\s.,/_+\-\\*=*#]+?)\s*(?:=+|\*\*|\*|\/\/|\.\s*\/\s*\+|\/\+|\/|#|:|---|--|-|\+|,{2,}|\.+|@|×|x)\s*(\d+(?:\.\d+)?)$/i
+      /^([\d\s.,/_+\-\\*=*#]+?)\s*(?:=\/+|=+|\*\*|\*|\/\/|\.\s*\/\s*\+|\/\+|\/|#|:|---|--|-|\+|,{2,}|\.+|@|×|x)\s*(\d+(?:\.\d+)?)$/i
     );
     if (sepMatch) {
       const nums = extractJodiList(sepMatch[1]);
