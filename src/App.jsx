@@ -641,6 +641,24 @@ function analyzeWhatsAppText(raw) {
       continue;
     }
 
+    const repeatedAmtMatch = line.match(
+      /^\s*(\d+(?:\.\d+)?)\s*[.\-_*=,\s]{2,}\1(?:\s*(?:into|intu|ento|intoo|rs\.?|inr|₹))?\s*$/i
+    );
+    if (repeatedAmtMatch && pendingNumbers.length > 0) {
+      const amt = parseFloat(repeatedAmtMatch[1]);
+      const combined = [...pendingNumbers];
+      pendingNumbers = [];
+      pendingRawLines = [];
+      if (amt > 0) {
+        pushEntries(combined, amt, separatePalatAmt ?? (hasSamePalat ? amt : 0));
+      }
+      continue;
+    }
+
+    if (/^game\s*[.\s:=]*\d+(?:\.\d+)?\s*(?:rs\.?|inr|₹|\/-)?\s*$/i.test(line)) {
+      continue;
+    }
+
     let cleaned = line
       .replace(/[₹]/g, ' ')
       .replace(
