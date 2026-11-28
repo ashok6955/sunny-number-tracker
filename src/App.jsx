@@ -2530,68 +2530,90 @@ export default function App() {
             </div>
           </div>
 
-          {/* Row 2: Grand Total + History */}
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: '8px',
-              marginBottom: '9px',
-            }}
-          >
-            <p style={{ fontSize: '12px', color: t.textSecondary, whiteSpace: 'nowrap' }}>
-              {activeCategory} Total:{' '}
-              <strong style={{ color: t.accent }}>
-                ₹{categoryTotals[activeCategory].toLocaleString('en-IN')}
-              </strong>
-            </p>
+          {/* Row 2: Active Game Total + Live Plus/Minus Status */}
+          {(() => {
+            const rateMult = (Number(jodiRatePer10) || 0) / 10;
+            const rawActiveRes = String(gameResults?.[activeCategory] ?? '').replace(/\D/g, '').slice(0, 2);
+            const hasActiveRes = rawActiveRes.length === 2;
+            const activeResNum = hasActiveRes ? normalizeJodiNumber(rawActiveRes) : '';
+            const activeSale = Number(categoryTotals?.[activeCategory]) || 0;
+            const activeBet = hasActiveRes
+              ? entries.reduce(
+                  (sum, e) =>
+                    e.category === activeCategory && e.number === activeResNum
+                      ? sum + (Number(e.amount) || 0)
+                      : sum,
+                  0
+                )
+              : 0;
+            const activeNet = hasActiveRes ? activeSale - Math.round(activeBet * rateMult) : null;
 
-            <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-              <button
-                onClick={() => setToolsView('moti_jodi')}
-                title="Filter & Copy Numbers Above Amount (e.g. 800+)"
+            const savedHistNet = plHistory.reduce((s, h) => s + (Number(h.net) || 0), 0);
+            const now = new Date();
+            const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            const todayUnsavedDelta = CATEGORIES.reduce((s, cat) => {
+              const r = String(gameResults?.[cat] ?? '').replace(/\D/g, '').slice(0, 2);
+              if (r.length !== 2) return s;
+              const rn = normalizeJodiNumber(r);
+              const sc = Number(categoryTotals?.[cat]) || 0;
+              const bc = entries.reduce(
+                (sum, e) => (e.category === cat && e.number === rn ? sum + (Number(e.amount) || 0) : sum),
+                0
+              );
+              const n = sc - Math.round(bc * rateMult);
+              const prev = plHistory.find((h) => h.dateKey === todayKey && h.category === cat);
+              return s + (prev ? n - (Number(prev.net) || 0) : n);
+            }, 0);
+            const liveNet = activeNet !== null ? activeNet : savedHistNet + todayUnsavedDelta;
+            const isPlus = liveNet >= 0;
+
+            return (
+              <div
                 style={{
                   display: 'flex',
+                  justifyContent: 'space-between',
                   alignItems: 'center',
-                  gap: '4px',
-                  background: motiMinAmount > 0 ? t.accentSoft : t.inputBg,
-                  color: motiMinAmount > 0 ? t.accentText : t.textPrimary,
-                  border: `1px solid ${motiMinAmount > 0 ? t.accent : t.cardBorder}`,
-                  borderRadius: '999px',
-                  padding: '4px 10px',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
+                  gap: '8px',
+                  marginBottom: '9px',
                 }}
               >
-                <Flame size={12} color={t.accent} />
-                {motiMinAmount > 0 ? `Cut ₹${motiMinAmount}+` : 'Cut / ₹+'}
-              </button>
-              <button
-                onClick={() => setToolsView('entry_history')}
-                title="View Transactions & Delete Patterns"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  background: t.inputBg,
-                  color: t.textPrimary,
-                  border: `1px solid ${t.cardBorder}`,
-                  borderRadius: '999px',
-                  padding: '4px 10px',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <History size={12} color={t.accent} />
-                History
-              </button>
-            </div>
-          </div>
+                <p style={{ fontSize: '12px', color: t.textSecondary, whiteSpace: 'nowrap' }}>
+                  {activeCategory} Total:{' '}
+                  <strong style={{ color: t.accent, fontSize: '13px' }}>
+                    ₹{activeSale.toLocaleString('en-IN')}
+                  </strong>
+                </p>
+
+                <button
+                  onClick={() => setToolsView('profit_loss')}
+                  title="नफा / नुकसान हिसाब देखें"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    background: isPlus
+                      ? 'rgba(16, 185, 129, 0.16)'
+                      : 'rgba(244, 63, 94, 0.18)',
+                    color: isPlus ? '#34d399' : '#fb7185',
+                    border: `1.5px solid ${isPlus ? 'rgba(16, 185, 129, 0.5)' : 'rgba(244, 63, 94, 0.55)'}`,
+                    borderRadius: '999px',
+                    padding: '4px 11px',
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <span>{isPlus ? '📈' : '📉'}</span>
+                  <span>
+                    {activeNet !== null ? `${activeCategory}: ` : ''}
+                    {isPlus ? '+₹' : '-₹'}
+                    {Math.abs(liveNet).toLocaleString('en-IN')} {isPlus ? 'Plus' : 'Minus'}
+                  </span>
+                </button>
+              </div>
+            );
+          })()}
 
           {/* 6 Category Tabs with Lock/Unlock */}
           <div
@@ -3485,272 +3507,412 @@ export default function App() {
               onClick={(e) => e.stopPropagation()}
               style={{
                 width: '100%',
-                background: t.headerBg,
+                background: toolsView === 'menu' ? '#f0f2f5' : t.headerBg,
                 borderTopLeftRadius: '20px',
                 borderTopRightRadius: '20px',
-                borderTop: `1px solid ${t.cardBorder}`,
-                padding: '16px',
-                maxHeight: '84%',
+                borderTop: `1px solid ${toolsView === 'menu' ? '#e5e7eb' : t.cardBorder}`,
+                padding: toolsView === 'menu' ? '0' : '16px',
+                maxHeight: '88%',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '12px',
+                gap: toolsView === 'menu' ? '0' : '12px',
+                overflowY: 'auto',
               }}
             >
               {toolsView === 'menu' ? (
-                <>
+                <div style={{ display: 'flex', flexDirection: 'column', paddingBottom: '18px' }}>
+                  {/* WhatsApp-style Pure White Header */}
                   <div
                     style={{
+                      background: '#ffffff',
+                      padding: '15px 16px 13px',
+                      borderBottom: '1px solid #e5e7eb',
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
+                      position: 'sticky',
+                      top: 0,
+                      zIndex: 2,
                     }}
                   >
                     <div>
-                      <h2 style={{ fontSize: '16px', fontWeight: 700, color: t.textPrimary }}>
-                        🛠️ {activeCategory} — Tools
+                      <h2 style={{ fontSize: '18px', fontWeight: 800, color: '#000000' }}>
+                        सेटिंग्स (Settings)
                       </h2>
-                      <p style={{ fontSize: '11px', color: t.textSecondary }}>
-                        अपने काम के लिए टूल चुनें
+                      <p style={{ fontSize: '12px', color: '#4b5563', marginTop: '1px' }}>
+                        {activeCategory} घड़ी • सब कुछ आसान भाषा में
                       </p>
                     </div>
                     <button
                       onClick={() => setToolsView(null)}
                       style={{
-                        background: 'transparent',
+                        background: '#f3f4f6',
                         border: 'none',
-                        color: t.textSecondary,
+                        color: '#111827',
+                        borderRadius: '999px',
+                        width: '32px',
+                        height: '32px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                         cursor: 'pointer',
                       }}
                     >
-                      <X size={20} />
+                      <X size={18} />
                     </button>
                   </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <button
-                      onClick={() => setToolsView('all_sales')}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        background: t.accentSoft,
-                        border: `1.5px solid ${t.accent}`,
-                        borderRadius: '12px',
-                        padding: '13px 14px',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: '14px', fontWeight: 800, color: t.accentText }}>
-                          📊 All Games Total Sale
-                        </div>
-                        <div style={{ fontSize: '11px', color: t.textSecondary, marginTop: '2px' }}>
-                          DB + SG + FD + GB + GL + DS combined sale
-                        </div>
-                      </div>
-                      <span
-                        style={{
-                          background: t.accent,
-                          color: '#ffffff',
-                          fontWeight: 800,
-                          fontSize: '12px',
-                          padding: '4px 10px',
-                          borderRadius: '999px',
-                        }}
-                      >
-                        ₹{grandTotal.toLocaleString('en-IN')}
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={() => setToolsView('moti_jodi')}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        background: '#000000',
-                        border: '1.5px solid #f59e0b',
-                        borderRadius: '12px',
-                        padding: '14px',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <Flame size={20} color="#fbbf24" />
-                        <div>
-                          <div style={{ fontSize: '14px', fontWeight: 800, color: '#fbbf24' }}>
-                            Top Jodis (High to Low)
-                          </div>
-                          <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '2px' }}>
-                            सबसे मोटी से Lowest जोड़ी देखें व Copy
-                          </div>
-                        </div>
-                      </div>
-                      <span
-                        style={{
-                          background: '#f59e0b',
-                          color: '#000000',
-                          fontWeight: 800,
-                          fontSize: '11px',
-                          padding: '3px 8px',
-                          borderRadius: '999px',
-                        }}
-                      >
-                        {rankedList.length}
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={() => setToolsView('profit_loss')}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        background: t.inputBg,
-                        border: '1.5px solid #10b981',
-                        borderRadius: '12px',
-                        padding: '12px 14px',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '18px' }}>📊</span>
-                        <div>
-                          <div style={{ fontSize: '13px', fontWeight: 800, color: '#34d399' }}>
-                            Profit / Loss & Rate Setting
-                          </div>
-                          <div style={{ fontSize: '11px', color: t.textSecondary }}>
-                            Result डालें • ₹{jodiRatePer10}/10 रेट ({jodiRatePer10 / 10}x) से हिसाब देखें
-                          </div>
-                        </div>
-                      </div>
-                      <span
-                        style={{
-                          background: '#059669',
-                          color: '#ffffff',
-                          fontWeight: 800,
-                          fontSize: '10px',
-                          padding: '3px 8px',
-                          borderRadius: '999px',
-                        }}
-                      >
-                        {jodiRatePer10 / 10}x
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={() => setToolsView('share_image')}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        background: t.inputBg,
-                        border: `1.5px solid #0284c7`,
-                        borderRadius: '12px',
-                        padding: '12px 14px',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                      }}
-                    >
-                      <ImageIcon size={18} color="#38bdf8" />
-                      <div>
-                        <div style={{ fontSize: '13px', fontWeight: 700, color: '#38bdf8' }}>
-                          Create & Share 01–100 Chart Image
-                        </div>
-                        <div style={{ fontSize: '11px', color: t.textSecondary }}>
-                          Download or share HD chart image with total & name
-                        </div>
-                      </div>
-                    </button>
-
-                    <button
-                      onClick={() => setToolsView('cloud_sync')}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        background: t.inputBg,
-                        border: `1.5px solid ${syncEnabled ? '#10b981' : '#38bdf8'}`,
-                        borderRadius: '12px',
-                        padding: '12px 14px',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <Wifi size={18} color={syncEnabled ? '#10b981' : '#38bdf8'} />
-                        <div>
-                          <div style={{ fontSize: '13px', fontWeight: 700, color: syncEnabled ? '#6ee7b7' : '#38bdf8' }}>
-                            4-Phone Free Live Sync (₹0)
-                          </div>
-                          <div style={{ fontSize: '11px', color: t.textSecondary }}>
-                            एक फोन में Add और चारों फोनों में तुरंत देखें
-                          </div>
-                        </div>
-                      </div>
-                      <span
-                        style={{
-                          background: syncEnabled ? '#059669' : t.cardBg,
-                          color: syncEnabled ? '#ffffff' : t.textSecondary,
-                          fontWeight: 800,
-                          fontSize: '10px',
-                          padding: '3px 8px',
-                          borderRadius: '999px',
-                        }}
-                      >
-                        {syncEnabled ? 'ON' : 'OFF'}
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={() => setToolsView('entry_history')}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        background: t.inputBg,
-                        border: `1px solid ${t.cardBorder}`,
-                        borderRadius: '12px',
-                        padding: '12px 14px',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <History size={18} color={t.accent} />
-                        <div>
-                          <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>
-                            All Transactions History
-                          </div>
-                          <div style={{ fontSize: '11px', color: t.textSecondary }}>
-                            View every entry with time & delete wrong ones
-                          </div>
-                        </div>
-                      </div>
-                      <span
-                        style={{
-                          background: t.cardBg,
-                          color: t.textPrimary,
-                          fontWeight: 800,
-                          fontSize: '11px',
-                          padding: '3px 8px',
-                          borderRadius: '999px',
-                        }}
-                      >
-                        {historyTransactions.length}
-                      </span>
-                    </button>
-
-                    {/* Quick Settings inside Menu (Theme, Grid, Auto-Copy) */}
+                  <div style={{ padding: '12px 12px 0', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {/* Group 1: Daily Work */}
                     <div
                       style={{
+                        background: '#ffffff',
+                        borderRadius: '14px',
+                        overflow: 'hidden',
+                        border: '1px solid #e5e7eb',
+                      }}
+                    >
+                      <button
+                        onClick={() => setToolsView('profit_loss')}
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          background: '#ffffff',
+                          border: 'none',
+                          borderBottom: '1px solid #f1f5f9',
+                          padding: '13px 14px',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          gap: '10px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div
+                            style={{
+                              width: '34px',
+                              height: '34px',
+                              borderRadius: '9px',
+                              background: '#16a34a',
+                              color: '#ffffff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '17px',
+                              flexShrink: 0,
+                            }}
+                          >
+                            📊
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#000000' }}>
+                              नफा / नुकसान और रेट
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#4b5563', marginTop: '1px' }}>
+                              रिजल्ट डालें • रेट ₹{jodiRatePer10}/10 • पुराना हिसाब
+                            </div>
+                          </div>
+                        </div>
+                        <span style={{ fontSize: '18px', color: '#9ca3af', fontWeight: 600 }}>›</span>
+                      </button>
+
+                      <button
+                        onClick={() => setToolsView('moti_jodi')}
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          background: '#ffffff',
+                          border: 'none',
+                          borderBottom: '1px solid #f1f5f9',
+                          padding: '13px 14px',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          gap: '10px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div
+                            style={{
+                              width: '34px',
+                              height: '34px',
+                              borderRadius: '9px',
+                              background: '#ea580c',
+                              color: '#ffffff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <Flame size={18} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#000000' }}>
+                              बड़े नंबर अलग करें (Cut)
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#4b5563', marginTop: '1px' }}>
+                              50 से ऊपर या नीचे वाले नंबर अलग देखें व कॉपी करें
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span
+                            style={{
+                              background: '#fff7ed',
+                              color: '#c2410c',
+                              fontWeight: 700,
+                              fontSize: '12px',
+                              padding: '2px 8px',
+                              borderRadius: '999px',
+                            }}
+                          >
+                            {rankedList.length}
+                          </span>
+                          <span style={{ fontSize: '18px', color: '#9ca3af', fontWeight: 600 }}>›</span>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => setToolsView('entry_history')}
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          background: '#ffffff',
+                          border: 'none',
+                          borderBottom: '1px solid #f1f5f9',
+                          padding: '13px 14px',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          gap: '10px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div
+                            style={{
+                              width: '34px',
+                              height: '34px',
+                              borderRadius: '9px',
+                              background: '#0284c7',
+                              color: '#ffffff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <History size={18} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#000000' }}>
+                              एंट्री इतिहास (History)
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#4b5563', marginTop: '1px' }}>
+                              हर कस्टमर की एंट्री देखें, कॉपी या डिलीट करें
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span
+                            style={{
+                              background: '#eff6ff',
+                              color: '#1d4ed8',
+                              fontWeight: 700,
+                              fontSize: '12px',
+                              padding: '2px 8px',
+                              borderRadius: '999px',
+                            }}
+                          >
+                            {historyTransactions.length}
+                          </span>
+                          <span style={{ fontSize: '18px', color: '#9ca3af', fontWeight: 600 }}>›</span>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => setToolsView('all_sales')}
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          background: '#ffffff',
+                          border: 'none',
+                          padding: '13px 14px',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          gap: '10px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div
+                            style={{
+                              width: '34px',
+                              height: '34px',
+                              borderRadius: '9px',
+                              background: '#0d9488',
+                              color: '#ffffff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '16px',
+                              flexShrink: 0,
+                            }}
+                          >
+                            💰
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#000000' }}>
+                              सभी 6 घड़ी का कुल जोड़
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#4b5563', marginTop: '1px' }}>
+                              DB, SG, FD, GB, GL, DS सबका टोटल देखें
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span
+                            style={{
+                              background: '#f0fdfa',
+                              color: '#0f766e',
+                              fontWeight: 800,
+                              fontSize: '12px',
+                              padding: '2px 8px',
+                              borderRadius: '999px',
+                            }}
+                          >
+                            ₹{grandTotal.toLocaleString('en-IN')}
+                          </span>
+                          <span style={{ fontSize: '18px', color: '#9ca3af', fontWeight: 600 }}>›</span>
+                        </div>
+                      </button>
+                    </div>
+
+                    {/* Group 2: Sync & Share */}
+                    <div
+                      style={{
+                        background: '#ffffff',
+                        borderRadius: '14px',
+                        overflow: 'hidden',
+                        border: '1px solid #e5e7eb',
+                      }}
+                    >
+                      <button
+                        onClick={() => setToolsView('cloud_sync')}
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          background: '#ffffff',
+                          border: 'none',
+                          borderBottom: '1px solid #f1f5f9',
+                          padding: '13px 14px',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          gap: '10px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div
+                            style={{
+                              width: '34px',
+                              height: '34px',
+                              borderRadius: '9px',
+                              background: '#10b981',
+                              color: '#ffffff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <Wifi size={18} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#000000' }}>
+                              4-फोन लाइव सिंक
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#4b5563', marginTop: '1px' }}>
+                              एक फोन में जोड़ें, बाकी सब में तुरंत दिखेगा
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span
+                            style={{
+                              background: syncEnabled ? '#dcfce7' : '#f3f4f6',
+                              color: syncEnabled ? '#15803d' : '#4b5563',
+                              fontWeight: 800,
+                              fontSize: '11px',
+                              padding: '2px 8px',
+                              borderRadius: '999px',
+                            }}
+                          >
+                            {syncEnabled ? 'चालू (ON)' : 'बंद (OFF)'}
+                          </span>
+                          <span style={{ fontSize: '18px', color: '#9ca3af', fontWeight: 600 }}>›</span>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => setToolsView('share_image')}
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          background: '#ffffff',
+                          border: 'none',
+                          padding: '13px 14px',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          gap: '10px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div
+                            style={{
+                              width: '34px',
+                              height: '34px',
+                              borderRadius: '9px',
+                              background: '#2563eb',
+                              color: '#ffffff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <ImageIcon size={18} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#000000' }}>
+                              01–100 चार्ट फोटो बनाएं
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#4b5563', marginTop: '1px' }}>
+                              व्हाट्सएप पर भेजने के लिए साफ़ फोटो डाउनलोड करें
+                            </div>
+                          </div>
+                        </div>
+                        <span style={{ fontSize: '18px', color: '#9ca3af', fontWeight: 600 }}>›</span>
+                      </button>
+                    </div>
+
+                    {/* Group 3: Display & Quick Switches */}
+                    <div
+                      style={{
+                        background: '#ffffff',
+                        borderRadius: '14px',
+                        padding: '10px',
+                        border: '1px solid #e5e7eb',
                         display: 'grid',
                         gridTemplateColumns: '1fr 1fr 1fr',
-                        gap: '6px',
-                        paddingTop: '4px',
+                        gap: '8px',
                       }}
                     >
                       <button
@@ -3758,42 +3920,44 @@ export default function App() {
                         onClick={() => setThemeMode((m) => (m === 'dark' ? 'light' : 'dark'))}
                         style={{
                           display: 'flex',
+                          flexDirection: 'column',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          gap: '5px',
-                          background: t.inputBg,
-                          border: `1px solid ${t.cardBorder}`,
-                          color: t.textPrimary,
+                          gap: '4px',
+                          background: '#f9fafb',
+                          border: '1px solid #e5e7eb',
+                          color: '#000000',
                           borderRadius: '10px',
                           padding: '10px 6px',
-                          fontSize: '11px',
+                          fontSize: '12px',
                           fontWeight: 700,
                           cursor: 'pointer',
                         }}
                       >
-                        {themeMode === 'dark' ? <Sun size={13} color={t.accent} /> : <Moon size={13} color={t.accent} />}
-                        {themeMode === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                        {themeMode === 'dark' ? <Sun size={16} color="#ea580c" /> : <Moon size={16} color="#2563eb" />}
+                        {themeMode === 'dark' ? 'सफेद स्क्रीन' : 'काली स्क्रीन'}
                       </button>
                       <button
                         type="button"
                         onClick={() => setColumns((c) => (c === 5 ? 10 : 5))}
                         style={{
                           display: 'flex',
+                          flexDirection: 'column',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          gap: '5px',
-                          background: t.inputBg,
-                          border: `1px solid ${t.cardBorder}`,
-                          color: t.textPrimary,
+                          gap: '4px',
+                          background: '#f9fafb',
+                          border: '1px solid #e5e7eb',
+                          color: '#000000',
                           borderRadius: '10px',
                           padding: '10px 6px',
-                          fontSize: '11px',
+                          fontSize: '12px',
                           fontWeight: 700,
                           cursor: 'pointer',
                         }}
                       >
-                        <LayoutGrid size={13} color={t.accent} />
-                        {columns} Cols
+                        <LayoutGrid size={16} color="#0284c7" />
+                        {columns} खाने
                       </button>
                       <button
                         type="button"
@@ -3804,126 +3968,138 @@ export default function App() {
                         }}
                         style={{
                           display: 'flex',
+                          flexDirection: 'column',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          gap: '5px',
-                          background: autoPasteEnabled ? t.accentSoft : t.inputBg,
-                          border: `1px solid ${autoPasteEnabled ? t.accent : t.cardBorder}`,
-                          color: autoPasteEnabled ? t.accentText : t.textSecondary,
+                          gap: '4px',
+                          background: autoPasteEnabled ? '#ecfdf5' : '#f9fafb',
+                          border: `1px solid ${autoPasteEnabled ? '#10b981' : '#e5e7eb'}`,
+                          color: '#000000',
                           borderRadius: '10px',
                           padding: '10px 6px',
-                          fontSize: '11px',
+                          fontSize: '12px',
                           fontWeight: 700,
                           cursor: 'pointer',
                         }}
                       >
-                        {autoPasteEnabled ? <Unlock size={13} /> : <Lock size={13} />}
-                        {autoPasteEnabled ? 'Auto ON' : 'Auto OFF'}
+                        {autoPasteEnabled ? <Unlock size={16} color="#16a34a" /> : <Lock size={16} color="#6b7280" />}
+                        {autoPasteEnabled ? 'ऑटो-पेस्ट ON' : 'ऑटो-पेस्ट OFF'}
                       </button>
                     </div>
 
-                    <button
-                      onClick={() => setToolsView('failed_patterns')}
+                    {/* Group 4: Failed Patterns + Demos */}
+                    <div
                       style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        background: t.inputBg,
-                        border: `1.5px solid ${failedPatterns.length > 0 ? '#f43f5e' : t.cardBorder}`,
-                        borderRadius: '12px',
-                        padding: '12px 14px',
-                        cursor: 'pointer',
-                        textAlign: 'left',
+                        background: '#ffffff',
+                        borderRadius: '14px',
+                        overflow: 'hidden',
+                        border: '1px solid #e5e7eb',
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <AlertTriangle size={18} color={failedPatterns.length > 0 ? '#fb7185' : t.textSecondary} />
-                        <div>
-                          <div style={{ fontSize: '13px', fontWeight: 700, color: failedPatterns.length > 0 ? '#fb7185' : t.textPrimary }}>
-                            Failed Patterns History (Copy)
-                          </div>
-                          <div style={{ fontSize: '11px', color: t.textSecondary }}>
-                            जो पैटर्न ऐड न हो सकें, उन्हें कॉपी करके भेजें
-                          </div>
-                        </div>
-                      </div>
-                      <span
+                      <button
+                        onClick={() => setToolsView('failed_patterns')}
                         style={{
-                          background: failedPatterns.length > 0 ? '#f43f5e' : t.cardBg,
-                          color: failedPatterns.length > 0 ? '#ffffff' : t.textSecondary,
-                          fontWeight: 800,
-                          fontSize: '11px',
-                          padding: '3px 8px',
-                          borderRadius: '999px',
+                          width: '100%',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          background: '#ffffff',
+                          border: 'none',
+                          borderBottom: '1px solid #f1f5f9',
+                          padding: '13px 14px',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          gap: '10px',
                         }}
                       >
-                        {failedPatterns.length}
-                      </span>
-                    </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div
+                            style={{
+                              width: '34px',
+                              height: '34px',
+                              borderRadius: '9px',
+                              background: '#dc2626',
+                              color: '#ffffff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <AlertTriangle size={18} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '15px', fontWeight: 700, color: '#000000' }}>
+                              जो नंबर नहीं जुड़े
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#4b5563', marginTop: '1px' }}>
+                              गलत पैटर्न यहाँ दिखेंगे, कॉपी करके भेजें
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span
+                            style={{
+                              background: failedPatterns.length > 0 ? '#fee2e2' : '#f3f4f6',
+                              color: failedPatterns.length > 0 ? '#dc2626' : '#4b5563',
+                              fontWeight: 800,
+                              fontSize: '12px',
+                              padding: '2px 8px',
+                              borderRadius: '999px',
+                            }}
+                          >
+                            {failedPatterns.length}
+                          </span>
+                          <span style={{ fontSize: '18px', color: '#9ca3af', fontWeight: 600 }}>›</span>
+                        </div>
+                      </button>
 
-                    <button
-                      onClick={() => {
-                        setToolsView(null);
-                        const demoMsg =
-                          '[25/11, 8:45 pm] कस्टमर: 12.27.34.. into 20\n43=50\nTotal 110';
-                        if (typeof window.receiveSunnyClip === 'function') {
-                          window.receiveSunnyClip(demoMsg);
-                        } else {
-                          openConfirmForText(demoMsg, 'कीबोर्ड ✓ ');
-                        }
-                      }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        background: t.inputBg,
-                        border: '1.5px solid #10b981',
-                        borderRadius: '12px',
-                        padding: '12px 14px',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                      }}
-                    >
-                      <Sparkles size={18} color="#10b981" />
-                      <div>
-                        <div style={{ fontSize: '13px', fontWeight: 700, color: '#6ee7b7' }}>
-                          📱 ऑटो-पेस्ट डेमो देखें (Live Demo)
-                        </div>
-                        <div style={{ fontSize: '11px', color: t.textSecondary }}>
-                          देखें WhatsApp पर Copy करते ही Confirmेशन लिस्ट कैसे खुलेगी
-                        </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', background: '#ffffff' }}>
+                        <button
+                          onClick={() => {
+                            setToolsView(null);
+                            const demoMsg =
+                              '[25/11, 8:45 pm] कस्टमर: 12.27.34.. into 20\n43=50\nTotal 110';
+                            if (typeof window.receiveSunnyClip === 'function') {
+                              window.receiveSunnyClip(demoMsg);
+                            } else {
+                              openConfirmForText(demoMsg, 'कीबोर्ड ✓ ');
+                            }
+                          }}
+                          style={{
+                            background: '#ffffff',
+                            border: 'none',
+                            borderRight: '1px solid #f1f5f9',
+                            padding: '12px 8px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            color: '#000000',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          📱 ऑटो-पेस्ट डेमो
+                        </button>
+                        <button
+                          onClick={() => {
+                            handleLoad30kGame();
+                            setToolsView('moti_jodi');
+                          }}
+                          style={{
+                            background: '#ffffff',
+                            border: 'none',
+                            padding: '12px 8px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            color: '#000000',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          🎯 ₹30k सैंपल गेम
+                        </button>
                       </div>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        handleLoad30kGame();
-                        setToolsView('moti_jodi');
-                      }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        background: t.inputBg,
-                        border: `1px solid ${t.cardBorder}`,
-                        borderRadius: '12px',
-                        padding: '12px 14px',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                      }}
-                    >
-                      <Sparkles size={18} color={t.accent} />
-                      <div>
-                        <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>
-                          ₹30,000 डेमो गेम लोड करें
-                        </div>
-                        <div style={{ fontSize: '11px', color: t.textSecondary }}>
-                          {activeCategory} में ₹30,000 का सैंपल डेटा टेस्ट करें
-                        </div>
-                      </div>
-                    </button>
+                    </div>
                   </div>
-                </>
+                </div>
               ) : toolsView === 'all_sales' ? (
                 <>
                   <div
