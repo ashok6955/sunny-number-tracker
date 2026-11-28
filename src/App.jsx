@@ -922,7 +922,7 @@ export default function App() {
   });
   const [motiMinAmount, setMotiMinAmount] = useState(0);
   const [minAmountFilter, setMinAmountFilter] = useState(0);
-  const [filterMode, setFilterMode] = useState('exact'); // 'exact' (===) | 'min' (>=)
+  const [filterMode, setFilterMode] = useState('min'); // 'min' (>=) | 'exact' (===)
   const [splitPart, setSplitPart] = useState('selected'); // 'selected' | 'remaining'
   const [customMinFilter, setCustomMinFilter] = useState('');
   const [cutApplied, setCutApplied] = useState(false); // 0 = all, 300 = 30K (1%), 1000 = 1L (1%)
@@ -2628,7 +2628,7 @@ export default function App() {
           </div>
         )}
 
-        {/* 2-Part Split Amount Filter Bar (Selected vs Remaining + Copy + Back) */}
+        {/* 2-Part Cut / Split Amount System (Upar vs Niche with independent Copy & Back) */}
         {(() => {
           const hasFilter = minAmountFilter > 0;
           const allPlayed = hasFilter
@@ -2642,22 +2642,35 @@ export default function App() {
           const remainingNums = hasFilter ? allPlayed.filter((n) => !isMatch(n)) : [];
           const selectedSum = selectedNums.reduce((s, n) => s + boxTotals[n], 0);
           const remainingSum = remainingNums.reduce((s, n) => s + boxTotals[n], 0);
-          const activeList = splitPart === 'remaining' ? remainingNums : selectedNums;
-          const activeSum = splitPart === 'remaining' ? remainingSum : selectedSum;
-          const partLabel =
-            splitPart === 'remaining'
-              ? `Remaining (${filterMode === 'exact' ? `≠₹${minAmountFilter}` : `<₹${minAmountFilter}`})`
-              : filterMode === 'exact'
-              ? `₹${minAmountFilter}`
-              : `₹${minAmountFilter}+`;
+          const upperLabel = filterMode === 'exact' ? `=₹${minAmountFilter}` : `₹${minAmountFilter}+ Upar`;
+          const lowerLabel = filterMode === 'exact' ? `≠₹${minAmountFilter}` : `<₹${minAmountFilter} Niche`;
+
+          const copyListWithTotal = async (list, sum, title) => {
+            if (list.length === 0) {
+              showToast('Copy के लिए कोई नंबर नहीं है');
+              return;
+            }
+            const lines = [
+              `*${activeCategory} — ${title}*`,
+              ...list.map((n) => `${String(n).padStart(2, '0')} = ₹${boxTotals[n]}`),
+              `----------------`,
+              `Total (${list.length} Jodis): ₹${sum.toLocaleString('en-IN')}`,
+            ];
+            try {
+              await navigator.clipboard.writeText(lines.join('\n'));
+              showToast(`${title}: ${list.length}J (₹${sum.toLocaleString('en-IN')}) Copied ✓`);
+            } catch {
+              showToast('Copy failed');
+            }
+          };
 
           return (
-            <div style={{ padding: '5px 10px 2px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <div style={{ padding: '5px 10px 2px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <input
                   type="number"
                   inputMode="numeric"
-                  placeholder="₹ Amount"
+                  placeholder="₹ Amount (50 / 100)"
                   value={customMinFilter}
                   onChange={(e) => {
                     const v = e.target.value;
@@ -2667,8 +2680,10 @@ export default function App() {
                     setSplitPart('selected');
                   }}
                   style={{
-                    width: '86px',
-                    padding: '4px 9px',
+                    flex: 1,
+                    minWidth: '110px',
+                    maxWidth: '150px',
+                    padding: '5px 10px',
                     borderRadius: '999px',
                     fontSize: '11px',
                     fontWeight: 700,
@@ -2680,10 +2695,10 @@ export default function App() {
                 />
                 <button
                   type="button"
-                  title="Switch Exact (=) / Minimum (+)"
-                  onClick={() => setFilterMode((m) => (m === 'exact' ? 'min' : 'exact'))}
+                  title="Switch Upar+ (>=) / Exact (=)"
+                  onClick={() => setFilterMode((m) => (m === 'min' ? 'exact' : 'min'))}
                   style={{
-                    padding: '4px 9px',
+                    padding: '5px 10px',
                     borderRadius: '999px',
                     fontSize: '10px',
                     fontWeight: 800,
@@ -2694,68 +2709,31 @@ export default function App() {
                     border: `1px solid ${t.cardBorder}`,
                   }}
                 >
-                  {filterMode === 'exact' ? 'Exact =' : 'Min +'}
+                  {filterMode === 'min' ? 'Upar +' : 'Exact ='}
                 </button>
                 {hasFilter && (
-                  <>
-                    {activeList.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const lines = [
-                            `*${activeCategory} — ${partLabel}*`,
-                            ...activeList.map((n) => `${String(n).padStart(2, '0')} = ₹${boxTotals[n]}`),
-                            `----------------`,
-                            `Total (${activeList.length} Jodis): ₹${activeSum.toLocaleString('en-IN')}`,
-                          ];
-                          try {
-                            await navigator.clipboard.writeText(lines.join('\n'));
-                            showToast(`${activeList.length} Jodis (₹${activeSum.toLocaleString('en-IN')}) Copied ✓`);
-                          } catch {
-                            showToast('Copy failed');
-                          }
-                        }}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          padding: '4px 9px',
-                          borderRadius: '999px',
-                          fontSize: '10px',
-                          fontWeight: 800,
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          background: t.accentSoft,
-                          color: t.accentText,
-                          border: `1px solid ${t.accent}`,
-                        }}
-                      >
-                        <Copy size={11} /> Copy
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMinAmountFilter(0);
-                        setCustomMinFilter('');
-                        setSplitPart('selected');
-                      }}
-                      style={{
-                        marginLeft: 'auto',
-                        padding: '4px 10px',
-                        borderRadius: '999px',
-                        fontSize: '10px',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                        background: '#e11d48',
-                        color: '#ffffff',
-                        border: 'none',
-                      }}
-                    >
-                      ← Back
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMinAmountFilter(0);
+                      setCustomMinFilter('');
+                      setSplitPart('selected');
+                    }}
+                    style={{
+                      marginLeft: 'auto',
+                      padding: '5px 11px',
+                      borderRadius: '999px',
+                      fontSize: '10px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      background: '#e11d48',
+                      color: '#ffffff',
+                      border: 'none',
+                    }}
+                  >
+                    ← Back
+                  </button>
                 )}
               </div>
 
@@ -2764,51 +2742,100 @@ export default function App() {
                   style={{
                     display: 'grid',
                     gridTemplateColumns: '1fr 1fr',
-                    gap: '6px',
-                    background: t.inputBg,
-                    padding: '4px',
-                    borderRadius: '11px',
-                    border: `1px solid ${t.cardBorder}`,
+                    gap: '7px',
                   }}
                 >
-                  <button
-                    type="button"
+                  {/* Part 1: Upar / Selected */}
+                  <div
                     onClick={() => setSplitPart('selected')}
                     style={{
-                      padding: '5px 8px',
-                      borderRadius: '8px',
-                      border: splitPart === 'selected' ? `1px solid ${t.accent}` : '1px solid transparent',
-                      background: splitPart === 'selected' ? t.accentSoft : 'transparent',
+                      padding: '7px 9px',
+                      borderRadius: '11px',
+                      border: `1.5px solid ${splitPart === 'selected' ? t.accent : t.cardBorder}`,
+                      background: splitPart === 'selected' ? t.accentSoft : t.cardBg,
                       cursor: 'pointer',
-                      textAlign: 'left',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px',
                     }}
                   >
-                    <div style={{ fontSize: '10px', fontWeight: 700, color: splitPart === 'selected' ? t.accentText : t.textMuted }}>
-                      🎯 {filterMode === 'exact' ? `₹${minAmountFilter} Wale` : `₹${minAmountFilter}+ Wale`}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ fontSize: '10px', fontWeight: 800, color: splitPart === 'selected' ? t.accentText : t.textMuted }}>
+                        {upperLabel}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copyListWithTotal(selectedNums, selectedSum, upperLabel);
+                        }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          padding: '2px 7px',
+                          borderRadius: '999px',
+                          border: `1px solid ${t.accent}`,
+                          background: t.inputBg,
+                          color: t.accentText,
+                          fontSize: '9px',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <Copy size={10} /> Copy
+                      </button>
                     </div>
-                    <div style={{ fontSize: '12px', fontWeight: 800, color: t.textPrimary }}>
+                    <div style={{ fontSize: '13px', fontWeight: 800, color: t.textPrimary }}>
                       {selectedNums.length}J • ₹{selectedSum.toLocaleString('en-IN')}
                     </div>
-                  </button>
-                  <button
-                    type="button"
+                  </div>
+
+                  {/* Part 2: Niche / Remaining */}
+                  <div
                     onClick={() => setSplitPart('remaining')}
                     style={{
-                      padding: '5px 8px',
-                      borderRadius: '8px',
-                      border: splitPart === 'remaining' ? '1px solid #38bdf8' : '1px solid transparent',
-                      background: splitPart === 'remaining' ? 'rgba(56, 189, 248, 0.14)' : 'transparent',
+                      padding: '7px 9px',
+                      borderRadius: '11px',
+                      border: `1.5px solid ${splitPart === 'remaining' ? '#38bdf8' : t.cardBorder}`,
+                      background: splitPart === 'remaining' ? 'rgba(56, 189, 248, 0.14)' : t.cardBg,
                       cursor: 'pointer',
-                      textAlign: 'left',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px',
                     }}
                   >
-                    <div style={{ fontSize: '10px', fontWeight: 700, color: splitPart === 'remaining' ? '#38bdf8' : t.textMuted }}>
-                      📦 Baki ({filterMode === 'exact' ? `≠₹${minAmountFilter}` : `<₹${minAmountFilter}`})
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ fontSize: '10px', fontWeight: 800, color: splitPart === 'remaining' ? '#38bdf8' : t.textMuted }}>
+                        {lowerLabel}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copyListWithTotal(remainingNums, remainingSum, lowerLabel);
+                        }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          padding: '2px 7px',
+                          borderRadius: '999px',
+                          border: '1px solid #38bdf8',
+                          background: t.inputBg,
+                          color: '#38bdf8',
+                          fontSize: '9px',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <Copy size={10} /> Copy
+                      </button>
                     </div>
-                    <div style={{ fontSize: '12px', fontWeight: 800, color: t.textPrimary }}>
+                    <div style={{ fontSize: '13px', fontWeight: 800, color: t.textPrimary }}>
                       {remainingNums.length}J • ₹{remainingSum.toLocaleString('en-IN')}
                     </div>
-                  </button>
+                  </div>
                 </div>
               )}
             </div>
