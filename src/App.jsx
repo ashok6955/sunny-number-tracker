@@ -967,6 +967,8 @@ export default function App() {
   const [selectedBox, setSelectedBox] = useState(null);
   const [expandedJodi, setExpandedJodi] = useState(null);
   const [expandedEntryId, setExpandedEntryId] = useState(null);
+  const [historyCategoryFilter, setHistoryCategoryFilter] = useState(null); // null => activeCategory | 'ALL' | cat
+  const [historyWhatsAppPopup, setHistoryWhatsAppPopup] = useState(null);
   const [batchSources, setBatchSources] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.BATCH_SOURCES);
@@ -1498,13 +1500,14 @@ export default function App() {
 
   const [expandedBatchId, setExpandedBatchId] = useState(null);
 
-  const historyTransactions = useMemo(() => {
+  const buildTransactionsFromList = (list) => {
     const groups = new Map();
-    for (const ent of categoryEntries) {
+    for (const ent of list) {
       const key = ent.batchId || String(ent.id).split('-')[0] || String(ent.createdAt);
       if (!groups.has(key)) {
         groups.set(key, {
           batchId: key,
+          category: ent.category || activeCategory,
           time:
             ent.time ||
             new Date(ent.createdAt).toLocaleTimeString('en-IN', {
@@ -1522,7 +1525,19 @@ export default function App() {
       if ((ent.createdAt || 0) > g.createdAt) g.createdAt = ent.createdAt || 0;
     }
     return [...groups.values()].sort((a, b) => b.createdAt - a.createdAt);
-  }, [categoryEntries]);
+  };
+
+  const historyTransactions = useMemo(
+    () => buildTransactionsFromList(categoryEntries),
+    [categoryEntries, activeCategory]
+  );
+
+  const effectiveHistoryCat = historyCategoryFilter || activeCategory;
+  const filteredHistoryTransactions = useMemo(() => {
+    if (effectiveHistoryCat === 'ALL') return buildTransactionsFromList(entries);
+    if (effectiveHistoryCat === activeCategory) return historyTransactions;
+    return buildTransactionsFromList(entries.filter((e) => e.category === effectiveHistoryCat));
+  }, [entries, effectiveHistoryCat, activeCategory, historyTransactions]);
 
   const selectedBoxEntries = useMemo(() => {
     if (!selectedBox) return [];
@@ -4924,10 +4939,10 @@ export default function App() {
                       </button>
                       <div>
                         <h2 style={{ fontSize: '15px', fontWeight: 700, color: t.textPrimary }}>
-                          📜 {activeCategory} — Transactions ({historyTransactions.length})
+                          📜 {effectiveHistoryCat === 'ALL' ? 'All Games' : effectiveHistoryCat} — History ({filteredHistoryTransactions.length})
                         </h2>
                         <p style={{ fontSize: '11px', color: t.textSecondary }}>
-                          Tap any transaction to see all jodis, or delete the whole pattern in 1 click
+                          WhatsApp बटन दबाकर असली मैसेज देखें व कॉपी करें
                         </p>
                       </div>
                     </div>
@@ -4944,6 +4959,32 @@ export default function App() {
                     </button>
                   </div>
 
+                  {/* Game Category Filter Pills in History */}
+                  <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', paddingBottom: '4px' }}>
+                    {['ALL', ...CATEGORIES].map((catOpt) => {
+                      const active = effectiveHistoryCat === catOpt;
+                      return (
+                        <button
+                          key={`hist-cat-${catOpt}`}
+                          type="button"
+                          onClick={() => setHistoryCategoryFilter(catOpt)}
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: '999px',
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            background: active ? t.accent : t.inputBg,
+                            color: active ? '#ffffff' : t.textSecondary,
+                            border: `1px solid ${active ? t.accent : t.cardBorder}`,
+                          }}
+                        >
+                          {catOpt === 'ALL' ? 'All' : catOpt}
+                        </button>
+                      );
+                    })}
+                  </div>
+
                   <div
                     className="grid-scroll"
                     style={{
@@ -4951,10 +4992,10 @@ export default function App() {
                       display: 'flex',
                       flexDirection: 'column',
                       gap: '8px',
-                      maxHeight: '380px',
+                      maxHeight: '350px',
                     }}
                   >
-                    {historyTransactions.length === 0 ? (
+                    {filteredHistoryTransactions.length === 0 ? (
                       <p
                         style={{
                           fontSize: '13px',
@@ -4963,11 +5004,12 @@ export default function App() {
                           padding: '24px 0',
                         }}
                       >
-                        No entries in {activeCategory} yet.
+                        No entries in {effectiveHistoryCat === 'ALL' ? 'any game' : effectiveHistoryCat} yet.
                       </p>
                     ) : (
-                      historyTransactions.map((tx, idx) => {
+                      filteredHistoryTransactions.map((tx, idx) => {
                         const isOpen = expandedBatchId === tx.batchId;
+                        const srcMsg = batchSources[tx.batchId] || '';
                         const previewText = tx.items
                           .slice(0, 5)
                           .map((x) => `${String(x.number).padStart(2, '0')}=₹${x.amount}`)
@@ -4990,18 +5032,30 @@ export default function App() {
                                 display: 'flex',
                                 justifyContent: 'space-between',
                                 alignItems: 'center',
-                                gap: '8px',
+                                gap: '6px',
                               }}
                             >
                               <div
                                 onClick={() => setExpandedBatchId(isOpen ? null : tx.batchId)}
-                                style={{ flex: 1, cursor: 'pointer' }}
+                                style={{ flex: 1, cursor: 'pointer', minWidth: 0 }}
                               >
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                                  <span style={{ fontSize: '13px', fontWeight: 800, color: t.textPrimary }}>
-                                    #{historyTransactions.length - idx} • {tx.items.length} {tx.items.length === 1 ? 'Jodi' : 'Jodis'}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
+                                  <span
+                                    style={{
+                                      fontSize: '10px',
+                                      fontWeight: 800,
+                                      padding: '1px 6px',
+                                      borderRadius: '6px',
+                                      background: t.accentSoft,
+                                      color: t.accentText,
+                                    }}
+                                  >
+                                    {tx.category}
                                   </span>
-                                  <span style={{ fontSize: '13px', fontWeight: 800, color: t.accentText }}>
+                                  <span style={{ fontSize: '12px', fontWeight: 800, color: t.textPrimary }}>
+                                    #{filteredHistoryTransactions.length - idx} • {tx.items.length}J
+                                  </span>
+                                  <span style={{ fontSize: '12px', fontWeight: 800, color: t.accentText }}>
                                     ₹{tx.totalAmount.toLocaleString('en-IN')}
                                   </span>
                                   <span style={{ fontSize: '10px', color: t.textMuted }}>
@@ -5012,28 +5066,57 @@ export default function App() {
                                   {previewText} {isOpen ? '▲' : '▼'}
                                 </div>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteBatch(tx.items)}
-                                title="Delete entire pattern"
-                                style={{
-                                  background: 'rgba(225, 29, 72, 0.14)',
-                                  border: '1px solid #f43f5e',
-                                  color: '#fb7185',
-                                  borderRadius: '8px',
-                                  padding: '6px 9px',
-                                  fontSize: '11px',
-                                  fontWeight: 700,
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                <Trash2 size={13} />
-                                Delete
-                              </button>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setHistoryWhatsAppPopup({
+                                      batchId: tx.batchId,
+                                      category: tx.category,
+                                      time: tx.time,
+                                      count: tx.items.length,
+                                      totalAmount: tx.totalAmount,
+                                      rawText: srcMsg,
+                                    })
+                                  }
+                                  title="View exact WhatsApp message"
+                                  style={{
+                                    background: 'rgba(16, 185, 129, 0.16)',
+                                    border: '1px solid #10b981',
+                                    color: '#34d399',
+                                    borderRadius: '8px',
+                                    padding: '6px 8px',
+                                    fontSize: '10px',
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  WhatsApp
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteBatch(tx.items)}
+                                  title="Delete entire pattern"
+                                  style={{
+                                    background: 'rgba(225, 29, 72, 0.14)',
+                                    border: '1px solid #f43f5e',
+                                    color: '#fb7185',
+                                    borderRadius: '8px',
+                                    padding: '6px 8px',
+                                    fontSize: '10px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  <Trash2 size={12} />
+                                  Del
+                                </button>
+                              </div>
                             </div>
 
                             {isOpen && (
@@ -5350,6 +5433,124 @@ export default function App() {
                       </div>
                     );
                   })
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* History Exact WhatsApp Message Popup Modal */}
+        {historyWhatsAppPopup && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'rgba(2, 6, 23, 0.92)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '14px',
+              zIndex: 70,
+            }}
+            onClick={() => setHistoryWhatsAppPopup(null)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                background: t.cardBg,
+                border: '2px solid #10b981',
+                borderRadius: '18px',
+                padding: '16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
+                boxShadow: '0 20px 50px rgba(0, 0, 0, 0.7)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#34d399' }}>
+                    💬 Exact WhatsApp Message
+                  </h3>
+                  <div style={{ fontSize: '11px', color: t.textSecondary, marginTop: '2px' }}>
+                    {historyWhatsAppPopup.category} • {historyWhatsAppPopup.count} Jodis • ₹
+                    {historyWhatsAppPopup.totalAmount.toLocaleString('en-IN')} • {historyWhatsAppPopup.time}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setHistoryWhatsAppPopup(null)}
+                  style={{ background: 'transparent', border: 'none', color: t.textSecondary, cursor: 'pointer' }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div
+                className="grid-scroll"
+                style={{
+                  background: t.inputBg,
+                  border: `1px solid ${t.cardBorder}`,
+                  borderRadius: '12px',
+                  padding: '12px',
+                  fontSize: '12px',
+                  fontFamily: 'monospace',
+                  color: t.textPrimary,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  maxHeight: '260px',
+                  overflowY: 'auto',
+                }}
+              >
+                {historyWhatsAppPopup.rawText ||
+                  'Manual entry / पुराना डेटा (इस एंट्री का WhatsApp मैसेज सेव नहीं था)'}
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setHistoryWhatsAppPopup(null)}
+                  style={{
+                    flex: 1,
+                    background: t.inputBg,
+                    border: `1px solid ${t.cardBorder}`,
+                    color: t.textPrimary,
+                    borderRadius: '10px',
+                    padding: '11px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Close
+                </button>
+                {historyWhatsAppPopup.rawText && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(historyWhatsAppPopup.rawText);
+                        showToast('WhatsApp Message Copied — Search में पेस्ट करें ✓');
+                      } catch {
+                        showToast('Copy failed');
+                      }
+                    }}
+                    style={{
+                      flex: 1.6,
+                      background: '#10b981',
+                      border: 'none',
+                      color: '#000000',
+                      borderRadius: '10px',
+                      padding: '11px',
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <Copy size={14} /> Copy WhatsApp Msg
+                  </button>
                 )}
               </div>
             </div>
