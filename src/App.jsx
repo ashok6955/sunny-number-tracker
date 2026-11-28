@@ -874,7 +874,7 @@ export default function App() {
   });
   const [motiMinAmount, setMotiMinAmount] = useState(0);
   const [minAmountFilter, setMinAmountFilter] = useState(0);
-  const [filterMode, setFilterMode] = useState('min'); // 'min' (>=) | 'exact' (===)
+  const [filterMode, setFilterMode] = useState('exact'); // 'exact' (===) | 'min' (>=)
   const [customMinFilter, setCustomMinFilter] = useState('');
   const [cutApplied, setCutApplied] = useState(false); // 0 = all, 300 = 30K (1%), 1000 = 1L (1%)
   const [chartOwnerName, setChartOwnerName] = useState(() => localStorage.getItem('sunny_tracker_owner_v1') || 'Sunny');
@@ -2579,92 +2579,45 @@ export default function App() {
           </div>
         )}
 
-        {/* Quick Amount Filter Bar (All / ₹50+ / Exact =100, =200, =300 / Custom) */}
+        {/* Amount Filter Bar (Enter any amount + Exact=/Min+ + Back to All) */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '5px',
+            gap: '6px',
             padding: '5px 10px 2px',
-            overflowX: 'auto',
             flexShrink: 0,
           }}
         >
-          <button
-            type="button"
-            onClick={() => {
-              setMinAmountFilter(0);
-              setFilterMode('min');
-              setCustomMinFilter('');
+          <input
+            type="number"
+            inputMode="numeric"
+            placeholder="₹ Amount"
+            value={customMinFilter}
+            onChange={(e) => {
+              const v = e.target.value;
+              setCustomMinFilter(v);
+              const n = parseFloat(v);
+              setMinAmountFilter(Number.isFinite(n) && n > 0 ? n : 0);
             }}
             style={{
-              padding: '3px 8px',
+              width: '86px',
+              padding: '4px 9px',
               borderRadius: '999px',
-              fontSize: '10px',
-              fontWeight: 800,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              background: minAmountFilter === 0 ? t.accent : t.cardBg,
-              color: minAmountFilter === 0 ? '#ffffff' : t.textSecondary,
-              border: `1px solid ${minAmountFilter === 0 ? t.accent : t.cardBorder}`,
+              fontSize: '11px',
+              fontWeight: 700,
+              background: t.inputBg,
+              color: t.textPrimary,
+              border: `1px solid ${minAmountFilter > 0 ? t.accent : t.cardBorder}`,
+              outline: 'none',
             }}
-          >
-            All
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMinAmountFilter(50);
-              setFilterMode('min');
-              setCustomMinFilter('');
-            }}
-            style={{
-              padding: '3px 8px',
-              borderRadius: '999px',
-              fontSize: '10px',
-              fontWeight: 800,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              background: minAmountFilter === 50 && filterMode === 'min' && !customMinFilter ? t.accent : t.cardBg,
-              color: minAmountFilter === 50 && filterMode === 'min' && !customMinFilter ? '#ffffff' : t.textSecondary,
-              border: `1px solid ${minAmountFilter === 50 && filterMode === 'min' && !customMinFilter ? t.accent : t.cardBorder}`,
-            }}
-          >
-            ₹50+
-          </button>
-          {[100, 200, 300].map((val) => {
-            const active = minAmountFilter === val && filterMode === 'exact' && !customMinFilter;
-            return (
-              <button
-                key={`grid-flt-eq-${val}`}
-                type="button"
-                onClick={() => {
-                  setMinAmountFilter(val);
-                  setFilterMode('exact');
-                  setCustomMinFilter('');
-                }}
-                style={{
-                  padding: '3px 8px',
-                  borderRadius: '999px',
-                  fontSize: '10px',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                  background: active ? t.accent : t.cardBg,
-                  color: active ? '#ffffff' : t.textSecondary,
-                  border: `1px solid ${active ? t.accent : t.cardBorder}`,
-                }}
-              >
-                =₹{val}
-              </button>
-            );
-          })}
+          />
           <button
             type="button"
             title="Switch Exact (=) / Minimum (+)"
             onClick={() => setFilterMode((m) => (m === 'exact' ? 'min' : 'exact'))}
             style={{
-              padding: '3px 7px',
+              padding: '4px 9px',
               borderRadius: '999px',
               fontSize: '10px',
               fontWeight: 800,
@@ -2672,39 +2625,11 @@ export default function App() {
               whiteSpace: 'nowrap',
               background: t.inputBg,
               color: t.accentText,
-              border: `1px solid ${t.accent}`,
+              border: `1px solid ${t.cardBorder}`,
             }}
           >
             {filterMode === 'exact' ? 'Exact =' : 'Min +'}
           </button>
-          <input
-            type="number"
-            inputMode="numeric"
-            placeholder="₹ Amt"
-            value={customMinFilter}
-            onChange={(e) => {
-              const v = e.target.value;
-              setCustomMinFilter(v);
-              const n = parseFloat(v);
-              if (Number.isFinite(n) && n > 0) {
-                setMinAmountFilter(n);
-                setFilterMode('exact');
-              } else {
-                setMinAmountFilter(0);
-              }
-            }}
-            style={{
-              width: '58px',
-              padding: '3px 7px',
-              borderRadius: '999px',
-              fontSize: '10px',
-              fontWeight: 700,
-              background: t.inputBg,
-              color: t.textPrimary,
-              border: `1px solid ${customMinFilter ? t.accent : t.cardBorder}`,
-              outline: 'none',
-            }}
-          />
           {minAmountFilter > 0 && (() => {
             const matched = Array.from({ length: 100 }, (_, i) => i + 1).filter((n) =>
               filterMode === 'exact'
@@ -2713,17 +2638,39 @@ export default function App() {
             );
             const matchedSum = matched.reduce((s, n) => s + boxTotals[n], 0);
             return (
-              <span
-                style={{
-                  marginLeft: 'auto',
-                  fontSize: '10px',
-                  fontWeight: 800,
-                  color: '#fbbf24',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {matched.length}J • ₹{matchedSum.toLocaleString('en-IN')}
-              </span>
+              <>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    color: '#fbbf24',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {matched.length}J • ₹{matchedSum.toLocaleString('en-IN')}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMinAmountFilter(0);
+                    setCustomMinFilter('');
+                  }}
+                  style={{
+                    marginLeft: 'auto',
+                    padding: '4px 10px',
+                    borderRadius: '999px',
+                    fontSize: '10px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    background: '#e11d48',
+                    color: '#ffffff',
+                    border: 'none',
+                  }}
+                >
+                  ← Back (All)
+                </button>
+              </>
             );
           })()}
         </div>
