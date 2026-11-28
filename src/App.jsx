@@ -1500,6 +1500,39 @@ export default function App() {
       .sort((a, b) => b.createdAt - a.createdAt);
   }, [entries, activeCategory]);
 
+  // Entry-level 2-part split: separates individual entries (e.g. two ₹100 entries on 01 => 01=₹200 in Upper, while ₹20+₹10 on 01 => 01=₹30 in Lower)
+  const cutSplitData = useMemo(() => {
+    if (minAmountFilter <= 0) return null;
+    const upperBoxTotals = Array(101).fill(0);
+    const lowerBoxTotals = Array(101).fill(0);
+    for (const ent of categoryEntries) {
+      const num = ent.number;
+      const amt = Number(ent.amount || 0);
+      if (num < 1 || num > 100 || amt <= 0) continue;
+      const matches =
+        filterMode === 'exact'
+          ? Math.abs(amt - minAmountFilter) < 0.01
+          : amt >= minAmountFilter;
+      if (matches) upperBoxTotals[num] += amt;
+      else lowerBoxTotals[num] += amt;
+    }
+    const upperNums = [];
+    const lowerNums = [];
+    let upperSum = 0;
+    let lowerSum = 0;
+    for (let n = 1; n <= 100; n++) {
+      if (upperBoxTotals[n] > 0) {
+        upperNums.push(n);
+        upperSum += upperBoxTotals[n];
+      }
+      if (lowerBoxTotals[n] > 0) {
+        lowerNums.push(n);
+        lowerSum += lowerBoxTotals[n];
+      }
+    }
+    return { upperBoxTotals, lowerBoxTotals, upperNums, lowerNums, upperSum, lowerSum };
+  }, [categoryEntries, minAmountFilter, filterMode]);
+
   const [expandedBatchId, setExpandedBatchId] = useState(null);
 
   const buildTransactionsFromList = (list) => {
@@ -2729,31 +2762,24 @@ export default function App() {
           </div>
         )}
 
-        {/* 2-Part Cut / Split Amount System (Upar vs Niche with independent Copy & Back) */}
+        {/* 2-Part Cut / Split Amount System (Entry-Level Upar vs Niche with independent Copy & Back) */}
         {(() => {
-          const hasFilter = minAmountFilter > 0;
-          const allPlayed = hasFilter
-            ? Array.from({ length: 100 }, (_, i) => i + 1).filter((n) => boxTotals[n] > 0)
-            : [];
-          const isMatch = (n) =>
-            filterMode === 'exact'
-              ? Math.abs(boxTotals[n] - minAmountFilter) < 0.01
-              : boxTotals[n] >= minAmountFilter;
-          const selectedNums = hasFilter ? allPlayed.filter(isMatch) : [];
-          const remainingNums = hasFilter ? allPlayed.filter((n) => !isMatch(n)) : [];
-          const selectedSum = selectedNums.reduce((s, n) => s + boxTotals[n], 0);
-          const remainingSum = remainingNums.reduce((s, n) => s + boxTotals[n], 0);
-          const upperLabel = filterMode === 'exact' ? `=₹${minAmountFilter}` : `₹${minAmountFilter}+ Upar`;
-          const lowerLabel = filterMode === 'exact' ? `≠₹${minAmountFilter}` : `<₹${minAmountFilter} Niche`;
+          const hasFilter = minAmountFilter > 0 && cutSplitData;
+          const selectedNums = hasFilter ? cutSplitData.upperNums : [];
+          const remainingNums = hasFilter ? cutSplitData.lowerNums : [];
+          const selectedSum = hasFilter ? cutSplitData.upperSum : 0;
+          const remainingSum = hasFilter ? cutSplitData.lowerSum : 0;
+          const upperLabel = filterMode === 'exact' ? `=₹${minAmountFilter} Wale` : `₹${minAmountFilter}+ Upar`;
+          const lowerLabel = filterMode === 'exact' ? `≠₹${minAmountFilter} (Baki)` : `<₹${minAmountFilter} Niche`;
 
-          const copyListWithTotal = async (list, sum, title) => {
+          const copyListWithTotal = async (list, totalsArr, sum, title) => {
             if (list.length === 0) {
               showToast('Copy के लिए कोई नंबर नहीं है');
               return;
             }
             const lines = [
               `*${activeCategory} — ${title}*`,
-              ...list.map((n) => `${String(n).padStart(2, '0')} = ₹${boxTotals[n]}`),
+              ...list.map((n) => `${String(n).padStart(2, '0')} = ₹${totalsArr[n]}`),
               `----------------`,
               `Total (${list.length} Jodis): ₹${sum.toLocaleString('en-IN')}`,
             ];
@@ -2868,7 +2894,7 @@ export default function App() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          copyListWithTotal(selectedNums, selectedSum, upperLabel);
+                          copyListWithTotal(selectedNums, cutSplitData.upperBoxTotals, selectedSum, upperLabel);
                         }}
                         style={{
                           display: 'inline-flex',
@@ -2914,7 +2940,7 @@ export default function App() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          copyListWithTotal(remainingNums, remainingSum, lowerLabel);
+                          copyListWithTotal(remainingNums, cutSplitData.lowerBoxTotals, remainingSum, lowerLabel);
                         }}
                         style={{
                           display: 'inline-flex',
@@ -2958,10 +2984,10 @@ export default function App() {
           }}
         >
           {(() => {
-            const renderNumberBox = (num) => {
-              const amt = boxTotals[num];
+            const renderNumberBox = (num, customTotals = boxTotals) => {
+              const amt = customTotals[num];
               const hasAmt = amt > 0;
-              const tier = hasAmt ? tierByAmount[amt] : null;
+              const tier = hasAmt && customTotals === boxTotals ? tierByAmount[amt] : null;
               const isHighest = tier === 'top';
 
               let boxBg = t.cardBg;
@@ -3026,30 +3052,20 @@ export default function App() {
               );
             };
 
-            if (minAmountFilter <= 0) {
-              return Array.from({ length: 100 }, (_, i) => i + 1).map(renderNumberBox);
+            if (minAmountFilter <= 0 || !cutSplitData) {
+              return Array.from({ length: 100 }, (_, i) => i + 1).map((n) => renderNumberBox(n, boxTotals));
             }
 
-            const allPlayed = Array.from({ length: 100 }, (_, i) => i + 1).filter(
-              (n) => boxTotals[n] > 0
-            );
-            const isMatch = (n) =>
-              filterMode === 'exact'
-                ? Math.abs(boxTotals[n] - minAmountFilter) < 0.01
-                : boxTotals[n] >= minAmountFilter;
-            const upperNums = allPlayed.filter(isMatch);
-            const lowerNums = allPlayed.filter((n) => !isMatch(n));
-            const upperSum = upperNums.reduce((s, n) => s + boxTotals[n], 0);
-            const lowerSum = lowerNums.reduce((s, n) => s + boxTotals[n], 0);
+            const { upperBoxTotals, lowerBoxTotals, upperNums, lowerNums, upperSum, lowerSum } = cutSplitData;
 
-            const copySection = async (list, sum, title) => {
+            const copySection = async (list, totalsArr, sum, title) => {
               if (list.length === 0) {
                 showToast('Copy के लिए कोई नंबर नहीं है');
                 return;
               }
               const lines = [
                 `*${activeCategory} — ${title}*`,
-                ...list.map((n) => `${String(n).padStart(2, '0')} = ₹${boxTotals[n]}`),
+                ...list.map((n) => `${String(n).padStart(2, '0')} = ₹${totalsArr[n]}`),
                 `----------------`,
                 `Total (${list.length} Jodis): ₹${sum.toLocaleString('en-IN')}`,
               ];
@@ -3066,19 +3082,21 @@ export default function App() {
                 key: 'upper',
                 title: filterMode === 'exact' ? `🎯 =₹${minAmountFilter} Wale` : `🎯 ₹${minAmountFilter}+ Upar`,
                 nums: upperNums,
+                totalsArr: upperBoxTotals,
                 sum: upperSum,
                 accent: t.accent,
                 accentText: t.accentText,
-                emptyMsg: `${activeCategory} में ${filterMode === 'exact' ? `₹${minAmountFilter}` : `₹${minAmountFilter}+`} वाला कोई नंबर नहीं है।`,
+                emptyMsg: `${activeCategory} में ${filterMode === 'exact' ? `₹${minAmountFilter}` : `₹${minAmountFilter}+`} की कोई एंट्री नहीं है।`,
               },
               {
                 key: 'lower',
                 title: filterMode === 'exact' ? `📦 ≠₹${minAmountFilter} (Baki)` : `📦 <₹${minAmountFilter} Niche (Baki)`,
                 nums: lowerNums,
+                totalsArr: lowerBoxTotals,
                 sum: lowerSum,
                 accent: '#38bdf8',
                 accentText: '#38bdf8',
-                emptyMsg: `${activeCategory} में इसके अलावा कोई और नंबर नहीं है।`,
+                emptyMsg: `${activeCategory} में इसके अलावा कोई और एंट्री नहीं है।`,
               },
             ];
 
@@ -3109,7 +3127,7 @@ export default function App() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => copySection(sec.nums, sec.sum, sec.title)}
+                    onClick={() => copySection(sec.nums, sec.totalsArr, sec.sum, sec.title)}
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -3139,7 +3157,7 @@ export default function App() {
                       gap: columns === 5 ? '6px' : '4px',
                     }}
                   >
-                    {sec.nums.map(renderNumberBox)}
+                    {sec.nums.map((n) => renderNumberBox(n, sec.totalsArr))}
                   </div>
                 )}
               </div>
