@@ -2649,6 +2649,42 @@ export default function App() {
                 >
                   {matched.length}J • ₹{matchedSum.toLocaleString('en-IN')}
                 </span>
+                {matched.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const label = filterMode === 'exact' ? `₹${minAmountFilter}` : `₹${minAmountFilter}+`;
+                      const lines = [
+                        `*${activeCategory} (${label})*`,
+                        ...matched.map((n) => `${String(n).padStart(2, '0')} = ₹${boxTotals[n]}`),
+                        `----------------`,
+                        `Total (${matched.length} Jodis): ₹${matchedSum.toLocaleString('en-IN')}`,
+                      ];
+                      try {
+                        await navigator.clipboard.writeText(lines.join('\n'));
+                        showToast(`${matched.length} Jodis (₹${matchedSum.toLocaleString('en-IN')}) Copied ✓`);
+                      } catch {
+                        showToast('Copy failed');
+                      }
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '4px 9px',
+                      borderRadius: '999px',
+                      fontSize: '10px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      background: t.accentSoft,
+                      color: t.accentText,
+                      border: `1px solid ${t.accent}`,
+                    }}
+                  >
+                    <Copy size={11} /> Copy
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -2668,7 +2704,7 @@ export default function App() {
                     border: 'none',
                   }}
                 >
-                  ← Back (All)
+                  ← Back
                 </button>
               </>
             );
