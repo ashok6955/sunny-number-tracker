@@ -36,6 +36,7 @@ const STORAGE_KEYS = {
   DRAFT: 'sunny_tracker_draft_v1',
   COLUMNS: 'sunny_tracker_columns_v1',
   THEME: 'sunny_tracker_theme_v1',
+  BATCH_SOURCES: 'sunny_tracker_batch_sources_v1',
 };
 
 /**
@@ -186,6 +187,7 @@ function tryParseHarufLine(line) {
  * Examples: "2346789= 5 in jc", "123 crossing 10", "123 (10) cwj", "123 cwz 20"
  */
 function tryParseCrossingLine(line) {
+  if (!/\d/.test(line)) return null;
   const isJodaCut = /\b(?:jc|j\.c|joda\s*cut|jode\s*cat|jodi\s*cut)\b/i.test(line);
   const hasExplicitCrossing = /\b(?:cwj|cwz|crocing|crossing)\b/i.test(line);
   const hasHarufHint =
@@ -370,16 +372,17 @@ function analyzeWhatsAppText(raw) {
         ' '
       )
       .replace(/\bin\s+to\b/gi, 'into')
+      .replace(/(\d)\s*ki\b/gi, '$1 into ')
       .replace(
-        /\b(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shri\s*ganesh|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)\b/gi,
+        /\b(?:gb|gl|gali|ds|disawar|desawar|दिसावर|fd|fbd|fb|faridabad|sg|shree?\s*ganesh(?:\s+m)?|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)\b/gi,
         ' '
       )
       .replace(
-        /(\d)(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shri\s*ganesh|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)\s*$/i,
+        /(\d)(?:gb|gl|gali|ds|disawar|desawar|दिसावर|fd|fbd|fb|faridabad|sg|shree?\s*ganesh(?:\s+m)?|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)\s*$/i,
         '$1'
       )
       .replace(
-        /^(?:gb|gl|gali|ds|disawar|desawar|fd|fbd|fb|faridabad|sg|shri\s*ganesh|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)(?=\d)/i,
+        /^(?:gb|gl|gali|ds|disawar|desawar|दिसावर|fd|fbd|fb|faridabad|sg|shree?\s*ganesh(?:\s+m)?|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)(?=\d)/i,
         ''
       )
       .replace(/'/g, ' ')
@@ -528,11 +531,11 @@ function analyzeWhatsAppText(raw) {
     let cleaned = line
       .replace(/[₹]/g, ' ')
       .replace(
-        /(^|[\s,=*\-/])(\d+(?:\.\d+)?)[,\s.*]*(?:into|intu|ento|intoo|rs\.?|inr|rupe)\s*[/\-.,]*\s*$/i,
+        /(^|[\s,=*\-/.])(\d+(?:\.\d+)?)[,\s.*]*(?:into|intu|ento|intoo|rs\.?|inr|rupe|rupay|rupy)\s*[/\-.,]*\s*$/i,
         '$1 into $2'
       )
       .replace(/\bF\b/gi, ' ')
-      .replace(/\b(?:rs\.?|inr|rupe|rupy|ru|ki|ka|me|mai|mein|se|tak|ok|okk|ookk|clear)\b/gi, ' ')
+      .replace(/\b(?:rs\.?|inr|rupy|ru|ki|ka|me|mai|mein|se|tak|ok|okk|ookk|clear)\b/gi, ' ')
       .replace(/\/-/g, ' ')
       .replace(/\]/g, ')')
       .replace(/\)+/g, ')')
@@ -543,6 +546,8 @@ function analyzeWhatsAppText(raw) {
       .replace(/^\(([\d\s.,/_+\-\\*]+)\)\s*\*\s*(\d+(?:\.\d+)?)\s*$/, '$1 into $2')
       // Strip orphan trailing "into" with no amount after it (e.g. "39.93.49.94..into")
       .replace(/[.\s]*(?:into|intu|ento|intoo)\s*$/i, '')
+      // Normalize "into (370" / "into.(10" -> "into 370" / "into 10" so parenGroups never eats it
+      .replace(/\b(into|intu|ento|intoo|rupe|rupay|rs|@)\s*[.=*:\s]*\(\s*(\d+(?:\.\d+)?)\s*\)?\s*$/gi, ' $1 $2')
       .replace(/\.+$/, '')
       .trim();
 
@@ -591,8 +596,8 @@ function analyzeWhatsAppText(raw) {
       continue;
     }
 
-    // 3. Inline "(amount)" groups (supports (10*), (30r), (100rs into), (100)=200, and unclosed trailing "(300")
-    const parenGroups = [...cleaned.matchAll(/([\d\s.,/_+\-\\*!&]+?)\(\s*@?\s*(\d+(?:\.\d+)?)\s*(?:(?:\*|into|intu|ento|in|rs|r)\s*)*(?:\)|$)/gi)];
+    // 3. Inline "(amount)" groups (supports (10*), (30r), (100rs into), (100)=200, 26=(100), (20.), and unclosed trailing "(300")
+    const parenGroups = [...cleaned.matchAll(/([\d\s.,/_+\-\\*!&=]+?)\(\s*@?\s*(\d+(?:\.\d+)?)\s*\.?\s*(?:(?:\*|into|intu|ento|in|rs|r)\s*)*(?:\)|$)/gi)];
     if (parenGroups.length > 0) {
       let addedHere = false;
       for (const grp of parenGroups) {
@@ -612,9 +617,9 @@ function analyzeWhatsAppText(raw) {
       continue;
     }
 
-    // 4. "nums ... into/intu/ento/in/R/@/× amount"
+    // 4. "nums ... into/intu/ento/in/R/rupe/@/× amount" (also supports "into (370" and "into.(10")
     const intoMatch = cleaned.match(
-      /^(.*?)(?:into|intu|ento|intoo|int|in|rs|r|@|×|x)\s*[.=*:\s]*(\d+(?:\.\d+)?)\s*$/i
+      /^(.*?)(?:into|intu|ento|intoo|int|in|rupe|rupay|rs|r|@|×|x)\s*[.=*:\s(]*(\d+(?:\.\d+)?)\)?\s*$/i
     );
     if (intoMatch && !/^\d{1,3}\s*[-:=*#>x×/]+\s*\d+$/.test(cleaned)) {
       const nums = extractJodiList(intoMatch[1]);
@@ -653,7 +658,7 @@ function analyzeWhatsAppText(raw) {
 
     // 5. Separator match (never treat ".NN" in a pure 2-digit dot list as a decimal rupee amount)
     const sepMatch = !deferToBuffer && cleaned.match(
-      /^([\d\s.,/_+\-\\*=*#]+?)\s*(?:=+|\*\*|\*|\/\/|\.\s*\/\s*\+|\/\+|\/|#|:|---|--|-|,{2,}|\.+|@|×|x)\s*(\d+(?:\.\d+)?)$/i
+      /^([\d\s.,/_+\-\\*=*#]+?)\s*(?:=+|\*\*|\*|\/\/|\.\s*\/\s*\+|\/\+|\/|#|:|---|--|-|\+|,{2,}|\.+|@|×|x)\s*(\d+(?:\.\d+)?)$/i
     );
     if (sepMatch) {
       const nums = extractJodiList(sepMatch[1]);
@@ -836,6 +841,15 @@ export default function App() {
 
   const [selectedBox, setSelectedBox] = useState(null);
   const [expandedJodi, setExpandedJodi] = useState(null);
+  const [expandedEntryId, setExpandedEntryId] = useState(null);
+  const [batchSources, setBatchSources] = useState(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.BATCH_SOURCES);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
   const [pendingConfirm, setPendingConfirm] = useState(null); // { results, failed, sourceLabel, rawText }
   const [quickBoxAmount, setQuickBoxAmount] = useState('');
   const [toolsView, setToolsView] = useState(null); // null | 'menu' | 'moti_jodi' | 'share_image' | 'failed_patterns'
@@ -908,6 +922,7 @@ export default function App() {
       localStorage.setItem(STORAGE_KEYS.DRAFT, inputText);
       localStorage.setItem(STORAGE_KEYS.COLUMNS, String(columns));
       localStorage.setItem(STORAGE_KEYS.THEME, themeMode);
+      localStorage.setItem(STORAGE_KEYS.BATCH_SOURCES, JSON.stringify(batchSources));
       localStorage.setItem('sunny_tracker_owner_v1', chartOwnerName);
       localStorage.setItem('sunny_tracker_failed_patterns_v1', JSON.stringify(failedPatterns));
       const backupPayload = JSON.stringify(
@@ -1416,10 +1431,19 @@ export default function App() {
   };
 
   // Shared helper to commit parsed entries into activeCategory
-  const commitParsedEntries = (parsed, sourceLabel = '') => {
+  const commitParsedEntries = (parsed, sourceLabel = '', rawText = '') => {
     if (parsed.length === 0) return false;
     const now = Date.now();
     const batchId = `b-${now}-${Math.random().toString(36).slice(2, 6)}`;
+    if (rawText && rawText.trim()) {
+      const cleanSrc = rawText.trim();
+      setBatchSources((prev) => {
+        const keys = Object.keys(prev);
+        const next = keys.length > 400 ? Object.fromEntries(keys.slice(-300).map((k) => [k, prev[k]])) : { ...prev };
+        next[batchId] = cleanSrc;
+        return next;
+      });
+    }
     const timeStr = new Date(now).toLocaleTimeString('en-IN', {
       hour: '2-digit',
       minute: '2-digit',
@@ -1559,8 +1583,8 @@ export default function App() {
       if (!fromBridge) showToast('Paste or type WhatsApp text first');
       return;
     }
-    // Ignore pure word text (e.g. "Sunny") with no digits at all
-    if (!/\d/.test(rawText)) {
+    // Ignore pure word text (e.g. "Sunny") with no digits at all, or standalone 10-digit phone numbers
+    if (!/\d/.test(rawText) || /^\s*\+?\d{10,12}\s*$/.test(rawText)) {
       if (!fromBridge) {
         showToast('Enter numbers with amount (e.g. 23 100 or 23=50)');
       }
@@ -1682,8 +1706,8 @@ export default function App() {
       setPendingConfirm((prev) => (prev ? { ...prev, step: 2 } : null));
       return;
     }
-    const { results, failed, sourceLabel, fromBridge } = pendingConfirm;
-    commitParsedEntries(results, sourceLabel);
+    const { results, failed, sourceLabel, fromBridge, rawText } = pendingConfirm;
+    commitParsedEntries(results, sourceLabel, rawText);
     if (failed.length > 0) {
       const savedCount = recordFailedPatterns(failed, '');
       if (savedCount > 0) {
@@ -4734,49 +4758,133 @@ export default function App() {
                     अभी इस Numbers पर कोई एंट्री नहीं है।
                   </p>
                 ) : (
-                  selectedBoxEntries.map((item) => (
-                    <div
-                      key={item.id}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        background: t.inputBg,
-                        padding: '8px 12px',
-                        borderRadius: '10px',
-                        border: `1px solid ${t.cardBorder}`,
-                      }}
-                    >
-                      <div>
-                        <span style={{ fontWeight: 700, color: t.textPrimary }}>
-                          ₹{item.amount}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            color: t.textMuted,
-                            marginLeft: '8px',
-                          }}
-                        >
-                          {new Date(item.createdAt).toLocaleTimeString('hi-IN', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => handleDeleteEntry(item.id)}
+                  selectedBoxEntries.map((item) => {
+                    const srcMsg = (item.batchId && batchSources[item.batchId]) || item.rawText || '';
+                    const isExpanded = expandedEntryId === item.id;
+                    return (
+                      <div
+                        key={item.id}
                         style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#ef4444',
-                          cursor: 'pointer',
+                          background: t.inputBg,
+                          borderRadius: '10px',
+                          border: `1px solid ${isExpanded ? t.accent : t.cardBorder}`,
+                          overflow: 'hidden',
                         }}
                       >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  ))
+                        <div
+                          onClick={() => setExpandedEntryId(isExpanded ? null : item.id)}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontWeight: 700, color: t.textPrimary }}>
+                              ₹{item.amount}
+                            </span>
+                            <span style={{ fontSize: '11px', color: t.textMuted }}>
+                              {new Date(item.createdAt).toLocaleTimeString('hi-IN', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                color: srcMsg ? t.accentText : t.textMuted,
+                              }}
+                            >
+                              {srcMsg ? (isExpanded ? '▲ Hide Msg' : '▼ View Msg') : ''}
+                            </span>
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteEntry(item.id);
+                            }}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: '#ef4444',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                        {isExpanded && (
+                          <div
+                            style={{
+                              borderTop: `1px dashed ${t.cardBorder}`,
+                              padding: '8px 12px',
+                              background: 'rgba(15, 23, 42, 0.55)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '6px',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <span style={{ fontSize: '10px', fontWeight: 700, color: '#94a3b8' }}>
+                                Exact WhatsApp Message:
+                              </span>
+                              {srcMsg && (
+                                <button
+                                  type="button"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    try {
+                                      await navigator.clipboard.writeText(srcMsg);
+                                      showToast('Message Copied — WhatsApp में Search करें ✓');
+                                    } catch {
+                                      showToast('Copy failed');
+                                    }
+                                  }}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    padding: '3px 8px',
+                                    borderRadius: '6px',
+                                    border: `1px solid ${t.accent}`,
+                                    background: t.accentSoft,
+                                    color: t.accentText,
+                                    fontSize: '10px',
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  <Copy size={11} /> Copy Msg
+                                </button>
+                              )}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: '11px',
+                                fontFamily: 'monospace',
+                                color: t.textPrimary,
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                                maxHeight: '130px',
+                                overflowY: 'auto',
+                              }}
+                            >
+                              {srcMsg || 'Manual entry / पुराना डेटा (WhatsApp मैसेज उपलब्ध नहीं)'}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
