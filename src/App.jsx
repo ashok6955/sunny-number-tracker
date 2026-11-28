@@ -983,6 +983,17 @@ export default function App() {
       return {};
     }
   });
+  const [plHistory, setPlHistory] = useState(() => {
+    try {
+      const raw = localStorage.getItem('sunny_pl_history_v1');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [plTab, setPlTab] = useState('today'); // 'today' | 'final'
+  const [plGameFilter, setPlGameFilter] = useState('ALL');
+  const [plCopied, setPlCopied] = useState(false);
   const [batchSources, setBatchSources] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.BATCH_SOURCES);
@@ -1070,6 +1081,7 @@ export default function App() {
       localStorage.setItem(STORAGE_KEYS.BATCH_SOURCES, JSON.stringify(batchSources));
       localStorage.setItem('sunny_jodi_rate_v1', String(jodiRatePer10));
       localStorage.setItem('sunny_game_results_v1', JSON.stringify(gameResults));
+      localStorage.setItem('sunny_pl_history_v1', JSON.stringify(plHistory));
       localStorage.setItem('sunny_tracker_owner_v1', chartOwnerName);
       localStorage.setItem('sunny_tracker_failed_patterns_v1', JSON.stringify(failedPatterns));
       const backupPayload = JSON.stringify(
@@ -4853,6 +4865,14 @@ export default function App() {
                 (() => {
                   const rateVal = Number(jodiRatePer10) || 0;
                   const rateMult = rateVal / 10;
+                  const now = new Date();
+                  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                  const todayLabel = now.toLocaleDateString('en-IN', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                  });
+
                   const gameRows = CATEGORIES.map((cat) => {
                     const rawRes = String(gameResults?.[cat] ?? '').replace(/\D/g, '').slice(0, 2);
                     const hasResult = rawRes.length === 2;
@@ -4869,12 +4889,106 @@ export default function App() {
                       : 0;
                     const payout = hasResult ? Math.round(betOnRes * rateMult) : 0;
                     const net = hasResult ? sale - payout : 0;
-                    return { cat, rawRes, hasResult, resNum, sale, betOnRes, payout, net };
+                    const savedRec = plHistory.find(
+                      (h) => h.dateKey === todayKey && h.category === cat
+                    );
+                    const isSyncedToday =
+                      Boolean(savedRec) &&
+                      hasResult &&
+                      savedRec.resultNum === resNum &&
+                      savedRec.totalSale === sale &&
+                      savedRec.payout === payout;
+                    return {
+                      cat,
+                      rawRes,
+                      hasResult,
+                      resNum,
+                      sale,
+                      betOnRes,
+                      payout,
+                      net,
+                      savedRec,
+                      isSyncedToday,
+                    };
                   });
+
                   const declaredRows = gameRows.filter((r) => r.hasResult);
                   const totalDeclaredSale = declaredRows.reduce((s, r) => s + r.sale, 0);
                   const totalDeclaredPayout = declaredRows.reduce((s, r) => s + r.payout, 0);
                   const grandNet = totalDeclaredSale - totalDeclaredPayout;
+
+                  const saveRowsToHistory = (rowsToSave) => {
+                    if (!rowsToSave.length) return;
+                    setPlHistory((prev) => {
+                      const next = [...prev];
+                      rowsToSave.forEach((row) => {
+                        const rec = {
+                          id: `${todayKey}_${row.cat}`,
+                          dateKey: todayKey,
+                          dateLabel: todayLabel,
+                          category: row.cat,
+                          totalSale: row.sale,
+                          resultNum: row.resNum,
+                          betOnResult: row.betOnRes,
+                          ratePer10: rateVal,
+                          rateMult,
+                          payout: row.payout,
+                          net: row.net,
+                          savedAt: Date.now(),
+                        };
+                        const idx = next.findIndex(
+                          (item) => item.dateKey === todayKey && item.category === row.cat
+                        );
+                        if (idx >= 0) {
+                          next[idx] = rec;
+                        } else {
+                          next.unshift(rec);
+                        }
+                      });
+                      return next.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+                    });
+                  };
+
+                  // Overall running status = saved history + any unsaved declared games from today
+                  const savedHistoryNet = plHistory.reduce((s, h) => s + (Number(h.net) || 0), 0);
+                  const unsavedTodayDelta = declaredRows.reduce((s, r) => {
+                    if (r.savedRec) {
+                      return s + (r.net - (Number(r.savedRec.net) || 0));
+                    }
+                    return s + r.net;
+                  }, 0);
+                  const overallRunningNet = savedHistoryNet + unsavedTodayDelta;
+
+                  // Filtered history for Final Hisaab tab
+                  const filteredHistory =
+                    plGameFilter === 'ALL'
+                      ? plHistory
+                      : plHistory.filter((h) => h.category === plGameFilter);
+                  const histSale = filteredHistory.reduce((s, h) => s + (Number(h.totalSale) || 0), 0);
+                  const histPayout = filteredHistory.reduce((s, h) => s + (Number(h.payout) || 0), 0);
+                  const histNet = histSale - histPayout;
+
+                  const copyFinalHisaab = () => {
+                    const title =
+                      plGameFilter === 'ALL'
+                        ? '📊 FINAL HISAAB (ALL GAMES)'
+                        : `📊 FINAL HISAAB (${plGameFilter})`;
+                    const lines = [
+                      title,
+                      `Total Game: ₹${histSale.toLocaleString('en-IN')}`,
+                      `Total Jodi Lagi: ₹${histPayout.toLocaleString('en-IN')}`,
+                      `Final Hisaab: ${histNet >= 0 ? '+₹' : '-₹'}${Math.abs(histNet).toLocaleString('en-IN')} (${histNet >= 0 ? 'PROFIT' : 'LOSS'})`,
+                      '-------------------',
+                      ...filteredHistory.map(
+                        (h) =>
+                          `${h.dateLabel} | ${h.category} | Game: ₹${h.totalSale.toLocaleString('en-IN')} | [${h.resultNum}] ₹${h.betOnResult}×${h.rateMult}=₹${h.payout.toLocaleString('en-IN')} | ${h.net >= 0 ? '+₹' : '-₹'}${Math.abs(h.net).toLocaleString('en-IN')}`
+                      ),
+                    ];
+                    navigator.clipboard?.writeText(lines.join('\n')).then(() => {
+                      setPlCopied(true);
+                      setTimeout(() => setPlCopied(false), 1800);
+                    });
+                  };
 
                   return (
                     <>
@@ -4907,11 +5021,11 @@ export default function App() {
                               📊 Profit / Loss &amp; Rate Setting
                             </h2>
                             <p style={{ fontSize: '11px', color: t.textSecondary }}>
-                              जोड़ी रेट सेट करें और हर घड़ी का रिजल्ट डालकर नफा-नुकसान देखें
+                              आज का हिसाब, जोड़ी रेट और पूरा इतिहास
                             </p>
                           </div>
                         </div>
-                        {declaredRows.length > 0 && (
+                        {plTab === 'today' && declaredRows.length > 0 && (
                           <button
                             onClick={() => setGameResults({})}
                             style={{
@@ -4930,100 +5044,17 @@ export default function App() {
                         )}
                       </div>
 
-                      {/* Jodi Rate Setting */}
-                      <div
-                        style={{
-                          background: t.inputBg,
-                          border: `1px solid ${t.cardBorder}`,
-                          borderRadius: '12px',
-                          padding: '10px 12px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '8px',
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            gap: '8px',
-                          }}
-                        >
-                          <span style={{ fontSize: '12px', fontWeight: 700, color: t.textPrimary }}>
-                            ⚙️ जोड़ी रेट (₹10 पर)
-                          </span>
-                          <span style={{ fontSize: '11px', fontWeight: 700, color: '#38bdf8' }}>
-                            ₹10 = ₹{rateVal} ({rateMult}x)
-                          </span>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-                          {[900, 950, 1000].map((preset) => {
-                            const active = rateVal === preset;
-                            return (
-                              <button
-                                key={preset}
-                                onClick={() => setJodiRatePer10(preset)}
-                                style={{
-                                  flex: '1 1 70px',
-                                  background: active ? 'rgba(16, 185, 129, 0.2)' : 'rgba(15, 23, 42, 0.45)',
-                                  border: active
-                                    ? '1px solid #10b981'
-                                    : `1px solid ${t.cardBorder}`,
-                                  color: active ? '#34d399' : t.textPrimary,
-                                  borderRadius: '8px',
-                                  padding: '6px 8px',
-                                  fontSize: '11px',
-                                  fontWeight: 700,
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                ₹{preset} ({preset / 10}x)
-                              </button>
-                            );
-                          })}
-                          <input
-                            type="number"
-                            inputMode="numeric"
-                            min="0"
-                            value={jodiRatePer10 === 0 ? '' : jodiRatePer10}
-                            onChange={(e) => {
-                              const v = Number(e.target.value);
-                              setJodiRatePer10(Number.isFinite(v) && v >= 0 ? v : 0);
-                            }}
-                            placeholder="Custom"
-                            style={{
-                              width: '78px',
-                              background: 'rgba(15, 23, 42, 0.6)',
-                              border: `1px solid ${t.cardBorder}`,
-                              color: t.textPrimary,
-                              borderRadius: '8px',
-                              padding: '6px 8px',
-                              fontSize: '12px',
-                              fontWeight: 700,
-                              textAlign: 'center',
-                              outline: 'none',
-                            }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Grand Total Summary */}
+                      {/* Always-visible Overall Running Profit/Loss Banner */}
                       <div
                         style={{
                           background:
-                            declaredRows.length === 0
-                              ? t.inputBg
-                              : grandNet >= 0
-                                ? 'rgba(16, 185, 129, 0.14)'
-                                : 'rgba(244, 63, 94, 0.14)',
+                            overallRunningNet >= 0
+                              ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.18), rgba(6, 95, 70, 0.25))'
+                              : 'linear-gradient(135deg, rgba(244, 63, 94, 0.18), rgba(136, 19, 55, 0.25))',
                           border:
-                            declaredRows.length === 0
-                              ? `1px solid ${t.cardBorder}`
-                              : grandNet >= 0
-                                ? '1px solid rgba(16, 185, 129, 0.45)'
-                                : '1px solid rgba(244, 63, 94, 0.45)',
+                            overallRunningNet >= 0
+                              ? '1px solid rgba(16, 185, 129, 0.5)'
+                              : '1px solid rgba(244, 63, 94, 0.5)',
                           borderRadius: '12px',
                           padding: '10px 12px',
                           display: 'flex',
@@ -5033,167 +5064,574 @@ export default function App() {
                         }}
                       >
                         <div>
-                          <div style={{ fontSize: '11px', color: t.textSecondary, fontWeight: 600 }}>
-                            कुल हिसाब ({declaredRows.length}/{CATEGORIES.length} घड़ी रिजल्ट)
+                          <div style={{ fontSize: '11px', fontWeight: 700, color: t.textPrimary }}>
+                            📈 अब तक का कुल स्टेटस ({plHistory.length} सेव्ड)
                           </div>
-                          <div style={{ fontSize: '11px', color: t.textSecondary, marginTop: '2px' }}>
-                            Sale: ₹{totalDeclaredSale.toLocaleString('en-IN')} • Payout: ₹
-                            {totalDeclaredPayout.toLocaleString('en-IN')}
+                          <div style={{ fontSize: '10px', color: t.textSecondary, marginTop: '2px' }}>
+                            History: {savedHistoryNet >= 0 ? '+₹' : '-₹'}
+                            {Math.abs(savedHistoryNet).toLocaleString('en-IN')} • आज Live:{' '}
+                            {grandNet >= 0 ? '+₹' : '-₹'}
+                            {Math.abs(grandNet).toLocaleString('en-IN')}
                           </div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
                           <div
                             style={{
-                              fontSize: '16px',
-                              fontWeight: 800,
-                              color:
-                                declaredRows.length === 0
-                                  ? t.textSecondary
-                                  : grandNet >= 0
-                                    ? '#34d399'
-                                    : '#fb7185',
+                              fontSize: '17px',
+                              fontWeight: 900,
+                              color: overallRunningNet >= 0 ? '#34d399' : '#fb7185',
                             }}
                           >
-                            {declaredRows.length === 0
-                              ? '—'
-                              : `${grandNet >= 0 ? '+' : '-'}₹${Math.abs(grandNet).toLocaleString('en-IN')}`}
+                            {overallRunningNet >= 0 ? '+₹' : '-₹'}
+                            {Math.abs(overallRunningNet).toLocaleString('en-IN')}
                           </div>
                           <div
                             style={{
                               fontSize: '10px',
-                              fontWeight: 700,
-                              color:
-                                declaredRows.length === 0
-                                  ? t.textSecondary
-                                  : grandNet >= 0
-                                    ? '#34d399'
-                                    : '#fb7185',
+                              fontWeight: 800,
+                              color: overallRunningNet >= 0 ? '#34d399' : '#fb7185',
                             }}
                           >
-                            {declaredRows.length === 0
-                              ? 'रिजल्ट डालें'
-                              : grandNet >= 0
-                                ? 'PROFIT (फायदा)'
-                                : 'LOSS (नुकसान)'}
+                            {overallRunningNet >= 0 ? 'OVERALL PROFIT' : 'OVERALL LOSS'}
                           </div>
                         </div>
                       </div>
 
-                      {/* Game-wise Result & P/L */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-                        {gameRows.map((row) => {
-                          const isProfit = row.net >= 0;
-                          return (
+                      {/* Sub-Tabs: Today's Entry vs Final Hisaab */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: '6px',
+                          background: 'rgba(15, 23, 42, 0.45)',
+                          padding: '4px',
+                          borderRadius: '10px',
+                          border: `1px solid ${t.cardBorder}`,
+                        }}
+                      >
+                        <button
+                          onClick={() => setPlTab('today')}
+                          style={{
+                            flex: 1,
+                            background: plTab === 'today' ? '#0284c7' : 'transparent',
+                            border: 'none',
+                            color: plTab === 'today' ? '#ffffff' : t.textSecondary,
+                            borderRadius: '7px',
+                            padding: '7px 8px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          📝 आज का हिसाब
+                        </button>
+                        <button
+                          onClick={() => setPlTab('final')}
+                          style={{
+                            flex: 1,
+                            background: plTab === 'final' ? '#10b981' : 'transparent',
+                            border: 'none',
+                            color: plTab === 'final' ? '#052e16' : t.textSecondary,
+                            borderRadius: '7px',
+                            padding: '7px 8px',
+                            fontSize: '12px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          📋 Final Hisaab ({plHistory.length})
+                        </button>
+                      </div>
+
+                      {plTab === 'today' ? (
+                        <>
+                          {/* Jodi Rate Setting */}
+                          <div
+                            style={{
+                              background: t.inputBg,
+                              border: `1px solid ${t.cardBorder}`,
+                              borderRadius: '12px',
+                              padding: '10px 12px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '8px',
+                            }}
+                          >
                             <div
-                              key={row.cat}
                               style={{
-                                background: t.inputBg,
-                                border: row.hasResult
-                                  ? isProfit
-                                    ? '1px solid rgba(16, 185, 129, 0.4)'
-                                    : '1px solid rgba(244, 63, 94, 0.4)'
-                                  : `1px solid ${t.cardBorder}`,
-                                borderRadius: '11px',
-                                padding: '9px 11px',
                                 display: 'flex',
-                                flexDirection: 'column',
-                                gap: '6px',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: '8px',
                               }}
                             >
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  justifyContent: 'space-between',
-                                  alignItems: 'center',
-                                  gap: '8px',
-                                }}
-                              >
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                  <span
+                              <span style={{ fontSize: '12px', fontWeight: 700, color: t.textPrimary }}>
+                                ⚙️ जोड़ी रेट (₹10 पर)
+                              </span>
+                              <span style={{ fontSize: '11px', fontWeight: 700, color: '#38bdf8' }}>
+                                ₹10 = ₹{rateVal} ({rateMult}x)
+                              </span>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                              {[900, 950, 1000].map((preset) => {
+                                const active = rateVal === preset;
+                                return (
+                                  <button
+                                    key={preset}
+                                    onClick={() => setJodiRatePer10(preset)}
                                     style={{
-                                      background: 'rgba(56, 189, 248, 0.16)',
-                                      color: '#38bdf8',
-                                      border: '1px solid rgba(56, 189, 248, 0.35)',
-                                      borderRadius: '7px',
-                                      padding: '3px 8px',
-                                      fontSize: '12px',
-                                      fontWeight: 800,
-                                      minWidth: '34px',
-                                      textAlign: 'center',
+                                      flex: '1 1 70px',
+                                      background: active
+                                        ? 'rgba(16, 185, 129, 0.2)'
+                                        : 'rgba(15, 23, 42, 0.45)',
+                                      border: active
+                                        ? '1px solid #10b981'
+                                        : `1px solid ${t.cardBorder}`,
+                                      color: active ? '#34d399' : t.textPrimary,
+                                      borderRadius: '8px',
+                                      padding: '6px 8px',
+                                      fontSize: '11px',
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
                                     }}
                                   >
-                                    {row.cat}
-                                  </span>
-                                  <div>
-                                    <div style={{ fontSize: '12px', fontWeight: 700, color: t.textPrimary }}>
-                                      Sale: ₹{row.sale.toLocaleString('en-IN')}
-                                    </div>
-                                    {row.hasResult && (
-                                      <div style={{ fontSize: '10px', color: t.textSecondary }}>
-                                        {row.resNum} लगी: ₹{row.betOnRes.toLocaleString('en-IN')} × {rateMult} = ₹
-                                        {row.payout.toLocaleString('en-IN')}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
+                                    ₹{preset} ({preset / 10}x)
+                                  </button>
+                                );
+                              })}
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                min="0"
+                                value={jodiRatePer10 === 0 ? '' : jodiRatePer10}
+                                onChange={(e) => {
+                                  const v = Number(e.target.value);
+                                  setJodiRatePer10(Number.isFinite(v) && v >= 0 ? v : 0);
+                                }}
+                                placeholder="Custom"
+                                style={{
+                                  width: '78px',
+                                  background: 'rgba(15, 23, 42, 0.6)',
+                                  border: `1px solid ${t.cardBorder}`,
+                                  color: t.textPrimary,
+                                  borderRadius: '8px',
+                                  padding: '6px 8px',
+                                  fontSize: '12px',
+                                  fontWeight: 700,
+                                  textAlign: 'center',
+                                  outline: 'none',
+                                }}
+                              />
+                            </div>
+                          </div>
 
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                  {row.hasResult && (
-                                    <div style={{ textAlign: 'right' }}>
-                                      <div
-                                        style={{
-                                          fontSize: '13px',
-                                          fontWeight: 800,
-                                          color: isProfit ? '#34d399' : '#fb7185',
-                                        }}
-                                      >
-                                        {isProfit ? '+' : '-'}₹{Math.abs(row.net).toLocaleString('en-IN')}
-                                      </div>
-                                      <div
-                                        style={{
-                                          fontSize: '9px',
-                                          fontWeight: 700,
-                                          color: isProfit ? '#34d399' : '#fb7185',
-                                        }}
-                                      >
-                                        {isProfit ? 'PROFIT' : 'LOSS'}
-                                      </div>
-                                    </div>
-                                  )}
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    maxLength={2}
-                                    value={row.rawRes}
-                                    onChange={(e) => {
-                                      const digits = e.target.value.replace(/\D/g, '').slice(0, 2);
-                                      setGameResults((prev) => ({
-                                        ...(prev || {}),
-                                        [row.cat]: digits,
-                                      }));
-                                    }}
-                                    placeholder="Result"
-                                    style={{
-                                      width: '60px',
-                                      background: 'rgba(15, 23, 42, 0.65)',
-                                      border: row.hasResult
-                                        ? '1px solid #38bdf8'
-                                        : `1px solid ${t.cardBorder}`,
-                                      color: t.textPrimary,
-                                      borderRadius: '8px',
-                                      padding: '6px 4px',
-                                      fontSize: '13px',
-                                      fontWeight: 800,
-                                      textAlign: 'center',
-                                      outline: 'none',
-                                    }}
-                                  />
+                          {/* Today's Summary + Save All Button */}
+                          <div
+                            style={{
+                              background: t.inputBg,
+                              border: `1px solid ${t.cardBorder}`,
+                              borderRadius: '12px',
+                              padding: '10px 12px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '8px',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: '10px',
+                              }}
+                            >
+                              <div>
+                                <div style={{ fontSize: '11px', color: t.textSecondary, fontWeight: 600 }}>
+                                  आज का हिसाब ({declaredRows.length}/{CATEGORIES.length} घड़ी रिजल्ट)
+                                </div>
+                                <div style={{ fontSize: '11px', color: t.textSecondary, marginTop: '2px' }}>
+                                  Sale: ₹{totalDeclaredSale.toLocaleString('en-IN')} • Lagi: ₹
+                                  {totalDeclaredPayout.toLocaleString('en-IN')}
+                                </div>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <div
+                                  style={{
+                                    fontSize: '15px',
+                                    fontWeight: 800,
+                                    color:
+                                      declaredRows.length === 0
+                                        ? t.textSecondary
+                                        : grandNet >= 0
+                                          ? '#34d399'
+                                          : '#fb7185',
+                                  }}
+                                >
+                                  {declaredRows.length === 0
+                                    ? '—'
+                                    : `${grandNet >= 0 ? '+₹' : '-₹'}${Math.abs(grandNet).toLocaleString('en-IN')}`}
                                 </div>
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
+
+                            {declaredRows.length > 0 && (
+                              <button
+                                onClick={() => saveRowsToHistory(declaredRows)}
+                                style={{
+                                  width: '100%',
+                                  background: '#10b981',
+                                  border: 'none',
+                                  color: '#052e16',
+                                  borderRadius: '9px',
+                                  padding: '8px 10px',
+                                  fontSize: '12px',
+                                  fontWeight: 800,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                💾 आज का हिसाब History में Save करें ({declaredRows.length} घड़ी)
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Game-wise Result & Detailed Hisaab Breakdown */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {gameRows.map((row) => {
+                              const isProfit = row.net >= 0;
+                              return (
+                                <div
+                                  key={row.cat}
+                                  style={{
+                                    background: t.inputBg,
+                                    border: row.hasResult
+                                      ? isProfit
+                                        ? '1px solid rgba(16, 185, 129, 0.4)'
+                                        : '1px solid rgba(244, 63, 94, 0.4)'
+                                      : `1px solid ${t.cardBorder}`,
+                                    borderRadius: '11px',
+                                    padding: '10px 11px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '7px',
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      gap: '8px',
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <span
+                                        style={{
+                                          background: 'rgba(56, 189, 248, 0.16)',
+                                          color: '#38bdf8',
+                                          border: '1px solid rgba(56, 189, 248, 0.35)',
+                                          borderRadius: '7px',
+                                          padding: '3px 8px',
+                                          fontSize: '12px',
+                                          fontWeight: 800,
+                                          minWidth: '34px',
+                                          textAlign: 'center',
+                                        }}
+                                      >
+                                        {row.cat}
+                                      </span>
+                                      <div style={{ fontSize: '12px', fontWeight: 700, color: t.textPrimary }}>
+                                        Total Game: ₹{row.sale.toLocaleString('en-IN')}
+                                      </div>
+                                    </div>
+
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        maxLength={2}
+                                        value={row.rawRes}
+                                        onChange={(e) => {
+                                          const digits = e.target.value.replace(/\D/g, '').slice(0, 2);
+                                          setGameResults((prev) => ({
+                                            ...(prev || {}),
+                                            [row.cat]: digits,
+                                          }));
+                                        }}
+                                        placeholder="Result"
+                                        style={{
+                                          width: '58px',
+                                          background: 'rgba(15, 23, 42, 0.65)',
+                                          border: row.hasResult
+                                            ? '1px solid #38bdf8'
+                                            : `1px solid ${t.cardBorder}`,
+                                          color: t.textPrimary,
+                                          borderRadius: '8px',
+                                          padding: '5px 4px',
+                                          fontSize: '13px',
+                                          fontWeight: 800,
+                                          textAlign: 'center',
+                                          outline: 'none',
+                                        }}
+                                      />
+                                      {row.hasResult && (
+                                        <button
+                                          onClick={() => saveRowsToHistory([row])}
+                                          style={{
+                                            background: row.isSyncedToday
+                                              ? 'rgba(16, 185, 129, 0.16)'
+                                              : '#0284c7',
+                                            border: row.isSyncedToday
+                                              ? '1px solid rgba(16, 185, 129, 0.45)'
+                                              : 'none',
+                                            color: row.isSyncedToday ? '#34d399' : '#ffffff',
+                                            borderRadius: '7px',
+                                            padding: '6px 8px',
+                                            fontSize: '11px',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                          }}
+                                        >
+                                          {row.isSyncedToday ? '✓ Saved' : 'Save'}
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {row.hasResult && (
+                                    <div
+                                      style={{
+                                        background: 'rgba(15, 23, 42, 0.45)',
+                                        borderRadius: '8px',
+                                        padding: '7px 9px',
+                                        fontSize: '11px',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '3px',
+                                      }}
+                                    >
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', color: t.textSecondary }}>
+                                        <span>जोड़ी [{row.resNum}] लगी: ₹{row.betOnRes.toLocaleString('en-IN')} × {rateMult}</span>
+                                        <span style={{ color: '#fbbf24', fontWeight: 700 }}>
+                                          ₹{row.payout.toLocaleString('en-IN')}
+                                        </span>
+                                      </div>
+                                      <div
+                                        style={{
+                                          display: 'flex',
+                                          justifyContent: 'space-between',
+                                          borderTop: `1px dashed ${t.cardBorder}`,
+                                          paddingTop: '4px',
+                                          marginTop: '2px',
+                                          fontWeight: 800,
+                                        }}
+                                      >
+                                        <span style={{ color: t.textPrimary }}>
+                                          हिसब (₹{row.sale.toLocaleString('en-IN')} − ₹{row.payout.toLocaleString('en-IN')}):
+                                        </span>
+                                        <span style={{ color: isProfit ? '#34d399' : '#fb7185' }}>
+                                          {isProfit ? '+₹' : '-₹'}
+                                          {Math.abs(row.net).toLocaleString('en-IN')} ({isProfit ? 'PROFIT' : 'LOSS'})
+                                        </span>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
+                      ) : (
+                        /* Final Hisaab & Game-wise History */
+                        <>
+                          {/* Game Filter Pills */}
+                          <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                            {['ALL', ...CATEGORIES].map((cat) => {
+                              const active = plGameFilter === cat;
+                              return (
+                                <button
+                                  key={cat}
+                                  onClick={() => setPlGameFilter(cat)}
+                                  style={{
+                                    background: active ? '#38bdf8' : t.inputBg,
+                                    border: active ? '1px solid #38bdf8' : `1px solid ${t.cardBorder}`,
+                                    color: active ? '#082f49' : t.textPrimary,
+                                    borderRadius: '8px',
+                                    padding: '5px 10px',
+                                    fontSize: '11px',
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  {cat === 'ALL' ? 'Final Hisaab (All)' : cat}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {/* Filtered Summary Card */}
+                          <div
+                            style={{
+                              background: t.inputBg,
+                              border:
+                                filteredHistory.length === 0
+                                  ? `1px solid ${t.cardBorder}`
+                                  : histNet >= 0
+                                    ? '1px solid rgba(16, 185, 129, 0.5)'
+                                    : '1px solid rgba(244, 63, 94, 0.5)',
+                              borderRadius: '12px',
+                              padding: '10px 12px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '6px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '12px', fontWeight: 800, color: '#38bdf8' }}>
+                                {plGameFilter === 'ALL' ? 'कुल फाइनल हिसाब' : `${plGameFilter} का फाइनल हिसाब`} ({filteredHistory.length})
+                              </span>
+                              {filteredHistory.length > 0 && (
+                                <button
+                                  onClick={copyFinalHisaab}
+                                  style={{
+                                    background: plCopied ? 'rgba(16, 185, 129, 0.2)' : 'rgba(56, 189, 248, 0.16)',
+                                    border: '1px solid rgba(56, 189, 248, 0.35)',
+                                    color: plCopied ? '#34d399' : '#38bdf8',
+                                    borderRadius: '7px',
+                                    padding: '4px 9px',
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  {plCopied ? '✓ Copied' : '📋 Copy Hisaab'}
+                                </button>
+                              )}
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: t.textSecondary }}>
+                              <span>Total Game:</span>
+                              <span style={{ color: t.textPrimary, fontWeight: 700 }}>
+                                ₹{histSale.toLocaleString('en-IN')}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: t.textSecondary }}>
+                              <span>Total Jodi Lagi:</span>
+                              <span style={{ color: '#fbbf24', fontWeight: 700 }}>
+                                ₹{histPayout.toLocaleString('en-IN')}
+                              </span>
+                            </div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                borderTop: `1px dashed ${t.cardBorder}`,
+                                paddingTop: '6px',
+                                fontSize: '13px',
+                                fontWeight: 900,
+                              }}
+                            >
+                              <span style={{ color: t.textPrimary }}>Final Net (Minus करके):</span>
+                              <span style={{ color: histNet >= 0 ? '#34d399' : '#fb7185' }}>
+                                {histNet >= 0 ? '+₹' : '-₹'}
+                                {Math.abs(histNet).toLocaleString('en-IN')} ({histNet >= 0 ? 'PROFIT' : 'LOSS'})
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* History Records */}
+                          {filteredHistory.length === 0 ? (
+                            <div
+                              style={{
+                                background: t.inputBg,
+                                border: `1px solid ${t.cardBorder}`,
+                                borderRadius: '12px',
+                                padding: '22px 14px',
+                                textAlign: 'center',
+                                fontSize: '12px',
+                                color: t.textSecondary,
+                              }}
+                            >
+                              अभी कोई हिसाब सेव नहीं है। &ldquo;📝 आज का हिसाब&rdquo; में रिजल्ट डालकर Save करें।
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+                              {filteredHistory.map((h) => {
+                                const isP = h.net >= 0;
+                                return (
+                                  <div
+                                    key={h.id}
+                                    style={{
+                                      background: t.inputBg,
+                                      border: isP
+                                        ? '1px solid rgba(16, 185, 129, 0.35)'
+                                        : '1px solid rgba(244, 63, 94, 0.35)',
+                                      borderRadius: '11px',
+                                      padding: '9px 11px',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      gap: '4px',
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                                        <span
+                                          style={{
+                                            background: 'rgba(56, 189, 248, 0.16)',
+                                            color: '#38bdf8',
+                                            borderRadius: '6px',
+                                            padding: '2px 7px',
+                                            fontSize: '11px',
+                                            fontWeight: 800,
+                                          }}
+                                        >
+                                          {h.category}
+                                        </span>
+                                        <span style={{ fontSize: '11px', color: t.textSecondary, fontWeight: 600 }}>
+                                          {h.dateLabel}
+                                        </span>
+                                      </div>
+                                      <button
+                                        onClick={() =>
+                                          setPlHistory((prev) => prev.filter((item) => item.id !== h.id))
+                                        }
+                                        title="Delete entry"
+                                        style={{
+                                          background: 'transparent',
+                                          border: 'none',
+                                          color: '#fb7185',
+                                          fontSize: '14px',
+                                          fontWeight: 700,
+                                          cursor: 'pointer',
+                                          padding: '0 4px',
+                                        }}
+                                      >
+                                        ×
+                                      </button>
+                                    </div>
+                                    <div style={{ fontSize: '11px', color: t.textPrimary, fontWeight: 600 }}>
+                                      Total Game: ₹{Number(h.totalSale).toLocaleString('en-IN')}
+                                    </div>
+                                    <div style={{ fontSize: '11px', color: t.textSecondary }}>
+                                      जोड़ी [{h.resultNum}] लगी: ₹{Number(h.betOnResult).toLocaleString('en-IN')} × {h.rateMult} = ₹
+                                      {Number(h.payout).toLocaleString('en-IN')}
+                                    </div>
+                                    <div
+                                      style={{
+                                        fontSize: '12px',
+                                        fontWeight: 800,
+                                        color: isP ? '#34d399' : '#fb7185',
+                                      }}
+                                    >
+                                      हिसब: {isP ? '+₹' : '-₹'}
+                                      {Math.abs(h.net).toLocaleString('en-IN')} ({isP ? 'PROFIT' : 'LOSS'})
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </>
+                      )}
                     </>
                   );
                 })()
