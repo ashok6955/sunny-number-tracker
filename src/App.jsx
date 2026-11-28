@@ -127,7 +127,7 @@ function tryParseHarufLine(line) {
   let amt = 0;
   let digitPart = line;
   const parenAmt = line.match(/\(\s*@?\s*₹?\s*(\d+(?:\.\d+)?)\s*(?:into|in|rs|₹)?\s*\)?/i);
-  const intoAmt = line.match(/(?:into|intu|ento|in|rs\.?|inr|r|₹|@|=|×|x|\*)\s*[.=*:₹\s]*(\d+(?:\.\d+)?)/i);
+  const intoAmt = line.match(/(?:into|intu|ento|in|rs\.?|inr|r|₹|@|=|×|x|\*|-)\s*[.=*:₹\s]*(\d+(?:\.\d+)?)/i);
   const slashAmt = line.match(/\/\s*₹?\s*(\d+(?:\.\d+)?)(?:\s*(?:haruf|harf|harup|haroop|harap|hrf|bahar|bahr|andar|ander|ab|ba|a|b))?\s*$/i);
   const dotSepHaruf = line.match(/^(\d)\1{2,}[.\s]+(\d+(?:\.\d+)?)/);
 
@@ -195,7 +195,7 @@ function tryParseCrossingLine(line) {
     /(?:हरूफ|हरफ|बाहर|अंदर|अन्दर)/.test(line);
   const lineWithoutAmts = line
     .replace(/\(\s*@?\s*\d+(?:\.\d+)?\s*(?:\*|into|intu|ento|in|rs|r)?\s*\)/gi, ' ')
-    .replace(/(?:@|into|intu|ento|in|rs|r|=|\*)\s*\d+(?:\.\d+)?/gi, ' ');
+    .replace(/(?:@|into|intu|ento|in|rs|r|=|\*|×|x)\s*\d+(?:\.\d+)?/gi, ' ');
   const stuckTokens = lineWithoutAmts.match(/\b\d{4,9}\b/g) || [];
   // Only treat stuck tokens as Crossing when all 4+ digits are unique AND it's the sole number token on the line (e.g. 1469@10, 8350@15),
   // so comma/dot-separated jodi lists like "8223,,3298,,40,47,7442" are never misread as Crossing.
@@ -282,9 +282,11 @@ function analyzeWhatsAppText(raw) {
   let pendingRawLines = [];
   let pendingLineRefs = [];
   let lastBatchNums = [];
+  let lastBatchAmt = 0;
 
   const pushEntries = (nums, straightAmt, palatAmt) => {
     lastBatchNums = [...nums];
+    lastBatchAmt = straightAmt;
     for (const n of nums) {
       results.push({ number: n, amount: straightAmt });
       normalResults.push({ number: n, amount: straightAmt });
@@ -332,11 +334,12 @@ function analyzeWhatsAppText(raw) {
       .trim();
     if (!line) continue;
 
-    // Skip WhatsApp system lines, media, deleted messages, phone numbers
+    // Skip WhatsApp system lines, media, deleted messages, phone numbers, last time alerts
     if (
       /^\d{1,2}\/\d{1,2}\/\d{2,4},\s*\d{1,2}:\d{2}/.test(line) ||
       /<Media omitted>/i.test(line) ||
       /This message was deleted/i.test(line) ||
+      /last\s*time/i.test(line) ||
       /paytm|phonepe|gpay|qr code|scanner/i.test(line) ||
       /\b\d{10}\b/.test(line)
     ) {
@@ -345,7 +348,7 @@ function analyzeWhatsAppText(raw) {
 
     // Skip Total / Balance / Grand Total lines
     if (
-      /^(?:total|tot|tol|ttl|tt|t|gt|all\s*total|hisab|balance|blnce|grand\s*total|टोटल|कुल)\b/i.test(
+      /^(?:total|tot|tol|ttl|tlt|tt\d*|t\d+|t|gt|all\s*total|hisab|balance|blnce|grand\s*total|टोटल|कुल)\b/i.test(
         line
       ) ||
       (/^\*?\(?\d+\s*₹?\]?\)*\s*[+\-*/=]*$/.test(line) &&
@@ -364,32 +367,33 @@ function analyzeWhatsAppText(raw) {
     // Also strip game tags (gb, gali, ds, fd, fb, sg, db, gzb, gaziyabad) anywhere & normalize "in to" -> "into"
     line = line
       .replace(
-        /(?:टोटल|कुल|grand\s*total|total|tot|tol|ttl|sum|\bto\.)\s*[-:=*>₹.\s]*\d+(?:\.\d+)?(?:\s*(?:₹|rs\.?|inr|\/-|रुपये|रुपए))?/gi,
+        /[,\s=]*(?:टोटल|कुल|grand\s*total|total|tot|tol|ttl|tlt|sum|\bto\.)\s*[-:=*>₹.\s]*\d+(?:\.\d+)?(?:\s*(?:₹|rs\.?|inr|\/-|रुपये|रुपए))?.*$/gi,
         ' '
       )
       .replace(
-        /\b\d+(?:\.\d+)?\s*(?:टोटल|कुल|grand\s*total|total|tot|tol|ttl)\b/gi,
+        /\b\d+(?:\.\d+)?\s*(?:टोटल|कुल|grand\s*total|total|tot|tol|ttl|tlt)\b/gi,
         ' '
       )
       .replace(/\bin\s+to\b/gi, 'into')
       .replace(/(\d)\s*ki\b/gi, '$1 into ')
       .replace(
-        /\b(?:gb|gl|gali|ds|disawar|desawar|दिसावर|fd|fbd|fb|faridabad|sg|shree?\s*ganesh(?:\s+m)?|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)\b/gi,
+        /\b(?:gb|gl|gali|ds|disawar|desawar|दिसावर|fd|fbd|fb|faridabad|फरीदाबाद|sg|shree?\s*ganesh(?:\s+m)?|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)\b/gi,
         ' '
       )
       .replace(
-        /(\d)(?:gb|gl|gali|ds|disawar|desawar|दिसावर|fd|fbd|fb|faridabad|sg|shree?\s*ganesh(?:\s+m)?|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)\s*$/i,
+        /(\d)(?:gb|gl|gali|ds|disawar|desawar|दिसावर|fd|fbd|fb|faridabad|फरीदाबाद|sg|shree?\s*ganesh(?:\s+m)?|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)\s*$/i,
         '$1'
       )
       .replace(
-        /^(?:gb|gl|gali|ds|disawar|desawar|दिसावर|fd|fbd|fb|faridabad|sg|shree?\s*ganesh(?:\s+m)?|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)(?=\d)/i,
+        /^(?:gb|gl|gali|ds|disawar|desawar|दिसावर|fd|fbd|fb|faridabad|फरीदाबाद|sg|shree?\s*ganesh(?:\s+m)?|db|delhi\s*baza+r|gzb|gzbd|gazi[ya]*bad|ghaziabad)(?=\d)/i,
         ''
       )
       .replace(/'/g, ' ')
+      .replace(/^[,.\]\s=]+/, '')
       .trim();
     if (!line) continue;
 
-    // Skip standalone 3+ digit total left after stripping game/total words (e.g. "Gaziyabad 150" -> "150")
+    // Skip standalone 3+ digit total left after stripping game/total words (e.g. "Gaziyabad 150", "Faridabad. 450", "Fb]=190")
     if (/^\d{3,}$/.test(line) && pendingNumbers.length === 0) {
       continue;
     }
@@ -512,6 +516,13 @@ function analyzeWhatsAppText(raw) {
         line = line
           .replace(/(?:\b|(?<=\d))(?:with\s+palat|palt\s*k\s*sath|palat\s*ke\s*sath|palat|palti|palt|plt|ptl|wp)(?:\b|(?=\d))/gi, ' ')
           .trim();
+        if (!line && lastBatchNums.length > 0 && lastBatchAmt > 0) {
+          for (const n of lastBatchNums) {
+            const rev = getPalatNumber(n);
+            if (rev !== null) results.push({ number: rev, amount: lastBatchAmt });
+          }
+          continue;
+        }
       }
     }
 
@@ -531,11 +542,11 @@ function analyzeWhatsAppText(raw) {
     let cleaned = line
       .replace(/[₹]/g, ' ')
       .replace(
-        /(^|[\s,=*\-/.])(\d+(?:\.\d+)?)[,\s.*]*(?:into|intu|ento|intoo|rs\.?|inr|rupe|rupay|rupy)\s*[/\-.,]*\s*$/i,
+        /(^|[\s,=*\-/.])(\d+(?:\.\d+)?)[,\s.*]*(?:into|intu|ento|intoo|nitu|rs\.?|inr|rupe|rupay|rupy)\s*[/\-.,]*\s*$/i,
         '$1 into $2'
       )
       .replace(/\bF\b/gi, ' ')
-      .replace(/\b(?:rs\.?|inr|rupy|ru|ki|ka|me|mai|mein|se|tak|ok|okk|ookk|clear)\b/gi, ' ')
+      .replace(/\b(?:rs\.?|inr)(?!\s*[.=*:\s,(]*\d)\b|\b(?:rupy|ru|ki|ka|me|mai|mein|se|tak|ok|okk|ookk|clear)\b/gi, ' ')
       .replace(/\/-/g, ' ')
       .replace(/\]/g, ')')
       .replace(/\)+/g, ')')
@@ -553,9 +564,9 @@ function analyzeWhatsAppText(raw) {
 
     if (!cleaned) continue;
 
-    // 2a. Multiple "nums ... R ... amt" segments on one line (e.g. "F,, 95,,,R,,,50,,,F,,,81,,85,,,R,,,10")
-    if (/\bR\b/i.test(cleaned)) {
-      const rMatches = [...cleaned.matchAll(/([\d\s.,]+?)\s*\bR\b\s*[,.\s]*(\d+(?:\.\d+)?)/gi)];
+    // 2a. Multiple "nums ... R/rs ... amt" segments on one line (e.g. "F,, 95,,,R,,,50" or "68.rs.125. 18.81.rs 75")
+    if (/\b(?:R|rs)\b/i.test(cleaned)) {
+      const rMatches = [...cleaned.matchAll(/([\d\s.,]+?)\s*[.,\s]*\b(?:R|rs)\b\s*[,.\s]*(\d+(?:\.\d+)?)/gi)];
       if (rMatches.length >= 2) {
         pendingNumbers = [];
         pendingRawLines = [];
@@ -617,9 +628,9 @@ function analyzeWhatsAppText(raw) {
       continue;
     }
 
-    // 4. "nums ... into/intu/ento/in/R/rupe/@/× amount" (also supports "into (370" and "into.(10")
+    // 4. "nums ... into/intu/ento/in/R/rupe/@/× amount" (also supports "into (370", "into.(10", "Rs,10", "=into=35")
     const intoMatch = cleaned.match(
-      /^(.*?)(?:into|intu|ento|intoo|int|in|rupe|rupay|rs|r|@|×|x)\s*[.=*:\s(]*(\d+(?:\.\d+)?)\)?\s*$/i
+      /^(.*?)(?:into|intu|ento|intoo|nitu|int|in|rupe|rupay|rs|r|@|×|x)\s*[.=*:\s,(]*(\d+(?:\.\d+)?)\)?\s*$/i
     );
     if (intoMatch && !/^\d{1,3}\s*[-:=*#>x×/]+\s*\d+$/.test(cleaned)) {
       const nums = extractJodiList(intoMatch[1]);
@@ -647,7 +658,7 @@ function analyzeWhatsAppText(raw) {
           const nxt = lines[k].trim();
           if (!nxt) continue;
           if (/^(?:total|tot|tol|ttl|tt|t|gt|टोटल|कुल)\b/i.test(nxt)) break;
-          if (/(?:into|intu|ento|intoo|in|rs|r)\s*[.=*:\s]*\d+|\d+\s*(?:into|intu|ento|intoo)|#\s*\d+|\(\s*@?\s*\d+\s*(?:into|in|rs)?\s*\)/i.test(nxt)) {
+          if (/(?:into|intu|ento|intoo|nitu|in|rs|r)\s*[.=*:\s,(]*\d+|\d+\s*(?:into|intu|ento|intoo|nitu)|#\s*\d+|\(\s*@?\s*\d+\s*(?:into|in|rs)?\s*(?:\)|$)/i.test(nxt)) {
             deferToBuffer = true;
             break;
           }
@@ -677,7 +688,7 @@ function analyzeWhatsAppText(raw) {
     const nextIsAmountOnly =
       /^(?:into|intu|ento|intoo|int|in|rs|r|@|×|x)\s*[.=*:\s]*\d+/i.test(nextLine) ||
       /^\(\s*@?\s*(?:into|intu|ento|in|rs)?\s*\d+(?:\.\d+)?\s*(?:into|in|rs)?\s*\)$/i.test(nextLine);
-    const singleSpaceMatch = !nextIsAmountOnly && cleaned.match(/^(\d{1,3})\s+(\d+(?:\.\d+)?)$/);
+    const singleSpaceMatch = !deferToBuffer && !nextIsAmountOnly && cleaned.match(/^(\d{1,3})\s+(\d+(?:\.\d+)?)$/);
     if (singleSpaceMatch) {
       const num = normalizeJodiNumber(singleSpaceMatch[1]);
       const amt = parseFloat(singleSpaceMatch[2]);
@@ -692,7 +703,7 @@ function analyzeWhatsAppText(raw) {
 
     // 7. Buffer pure number lines for next line's "into X"
     const strippedWords = cleaned.replace(/[\p{L}\p{M}]+/gu, ' ').trim();
-    if (strippedWords && /^[\d\s.,/_+\-\\*=!&]+$/.test(strippedWords)) {
+    if (strippedWords && /^[\d\s.,/_+\-\\*=!&:]+$/.test(strippedWords)) {
       const buffered = extractJodiList(strippedWords);
       if (buffered.length > 0) {
         pendingNumbers.push(...buffered);
@@ -862,6 +873,8 @@ export default function App() {
     }
   });
   const [motiMinAmount, setMotiMinAmount] = useState(0);
+  const [minAmountFilter, setMinAmountFilter] = useState(0);
+  const [customMinFilter, setCustomMinFilter] = useState('');
   const [cutApplied, setCutApplied] = useState(false); // 0 = all, 300 = 30K (1%), 1000 = 1L (1%)
   const [chartOwnerName, setChartOwnerName] = useState(() => localStorage.getItem('sunny_tracker_owner_v1') || 'Sunny');
   const [chartImageUrl, setChartImageUrl] = useState('');
@@ -2565,6 +2578,90 @@ export default function App() {
           </div>
         )}
 
+        {/* Quick Amount Filter Bar (All / ₹50+ / ₹100+ / ₹200+ / Custom) */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            padding: '5px 10px 2px',
+            overflowX: 'auto',
+            flexShrink: 0,
+          }}
+        >
+          <span style={{ fontSize: '10px', fontWeight: 700, color: t.textMuted, whiteSpace: 'nowrap' }}>
+            Filter:
+          </span>
+          {[0, 50, 100, 200].map((val) => {
+            const active = minAmountFilter === val;
+            return (
+              <button
+                key={`grid-flt-${val}`}
+                type="button"
+                onClick={() => {
+                  setMinAmountFilter(val);
+                  setCustomMinFilter('');
+                }}
+                style={{
+                  padding: '3px 8px',
+                  borderRadius: '999px',
+                  fontSize: '10px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  background: active ? t.accent : t.cardBg,
+                  color: active ? '#ffffff' : t.textSecondary,
+                  border: `1px solid ${active ? t.accent : t.cardBorder}`,
+                }}
+              >
+                {val === 0 ? 'All' : `₹${val}+`}
+              </button>
+            );
+          })}
+          <input
+            type="number"
+            inputMode="numeric"
+            placeholder="₹ Min"
+            value={customMinFilter}
+            onChange={(e) => {
+              const v = e.target.value;
+              setCustomMinFilter(v);
+              const n = parseInt(v, 10);
+              setMinAmountFilter(Number.isFinite(n) && n > 0 ? n : 0);
+            }}
+            style={{
+              width: '54px',
+              padding: '3px 6px',
+              borderRadius: '999px',
+              fontSize: '10px',
+              fontWeight: 700,
+              background: t.inputBg,
+              color: t.textPrimary,
+              border: `1px solid ${customMinFilter ? t.accent : t.cardBorder}`,
+              outline: 'none',
+            }}
+          />
+          {minAmountFilter > 0 && (() => {
+            const matched = Array.from({ length: 100 }, (_, i) => i + 1).filter(
+              (n) => boxTotals[n] >= minAmountFilter
+            );
+            const matchedSum = matched.reduce((s, n) => s + boxTotals[n], 0);
+            return (
+              <span
+                style={{
+                  marginLeft: 'auto',
+                  fontSize: '10px',
+                  fontWeight: 800,
+                  color: '#fbbf24',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {matched.length}J • ₹{matchedSum.toLocaleString('en-IN')}
+              </span>
+            );
+          })()}
+        </div>
+
         {/* 1 to 100 Number Grid */}
         <main
           className="grid-scroll"
@@ -2578,7 +2675,27 @@ export default function App() {
             alignContent: 'start',
           }}
         >
-          {Array.from({ length: 100 }, (_, i) => i + 1).map((num) => {
+          {(() => {
+            const visibleNums = Array.from({ length: 100 }, (_, i) => i + 1).filter(
+              (num) => minAmountFilter <= 0 || boxTotals[num] >= minAmountFilter
+            );
+            if (visibleNums.length === 0) {
+              return (
+                <div
+                  style={{
+                    gridColumn: '1 / -1',
+                    textAlign: 'center',
+                    padding: '28px 12px',
+                    color: t.textMuted,
+                    fontSize: '12px',
+                    fontWeight: 600,
+                  }}
+                >
+                  {activeCategory} में ₹{minAmountFilter} या उससे ऊपर कोई नंबर नहीं है।
+                </div>
+              );
+            }
+            return visibleNums.map((num) => {
             const amt = boxTotals[num];
             const hasAmt = amt > 0;
             const tier = hasAmt ? tierByAmount[amt] : null;
@@ -2644,7 +2761,8 @@ export default function App() {
                 </span>
               </button>
             );
-          })}
+          });
+          })()}
         </main>
 
         {/* Professional Bottom Total & Action Bar */}
