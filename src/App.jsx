@@ -971,6 +971,18 @@ export default function App() {
   const [expandedEntryId, setExpandedEntryId] = useState(null);
   const [historyCategoryFilter, setHistoryCategoryFilter] = useState(null); // null => activeCategory | 'ALL' | cat
   const [historyWhatsAppPopup, setHistoryWhatsAppPopup] = useState(null);
+  const [jodiRatePer10, setJodiRatePer10] = useState(() => {
+    const n = Number(localStorage.getItem('sunny_jodi_rate_v1') || '950');
+    return Number.isFinite(n) && n > 0 ? n : 950;
+  });
+  const [gameResults, setGameResults] = useState(() => {
+    try {
+      const raw = localStorage.getItem('sunny_game_results_v1');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
   const [batchSources, setBatchSources] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.BATCH_SOURCES);
@@ -1056,6 +1068,8 @@ export default function App() {
       localStorage.setItem(STORAGE_KEYS.COLUMNS, String(columns));
       localStorage.setItem(STORAGE_KEYS.THEME, themeMode);
       localStorage.setItem(STORAGE_KEYS.BATCH_SOURCES, JSON.stringify(batchSources));
+      localStorage.setItem('sunny_jodi_rate_v1', String(jodiRatePer10));
+      localStorage.setItem('sunny_game_results_v1', JSON.stringify(gameResults));
       localStorage.setItem('sunny_tracker_owner_v1', chartOwnerName);
       localStorage.setItem('sunny_tracker_failed_patterns_v1', JSON.stringify(failedPatterns));
       const backupPayload = JSON.stringify(
@@ -1815,11 +1829,36 @@ export default function App() {
     }
     const sortedResults = [...results].sort((a, b) => a.number - b.number);
     const sortedNormal = [...normalResults].sort((a, b) => a.number - b.number);
+    const trimmedIncoming = rawText.trim();
+    let duplicateMatch = null;
+    if (trimmedIncoming) {
+      const matchingBatchIds = new Set(
+        Object.entries(batchSources)
+          .filter(([, txt]) => (txt || '').trim() === trimmedIncoming)
+          .map(([bid]) => bid)
+      );
+      if (matchingBatchIds.size > 0) {
+        const prevItems = entries.filter((e) => matchingBatchIds.has(e.batchId));
+        if (prevItems.length > 0) {
+          const sameCatItems = prevItems.filter((e) => e.category === activeCategory);
+          const refList = sameCatItems.length > 0 ? sameCatItems : prevItems;
+          const refBid = refList[refList.length - 1].batchId;
+          const refBatchItems = refList.filter((e) => e.batchId === refBid);
+          duplicateMatch = {
+            category: refBatchItems[0].category,
+            time: refBatchItems[0].time || '',
+            count: refBatchItems.length,
+            total: refBatchItems.reduce((s, x) => s + Number(x.amount || 0), 0),
+          };
+        }
+      }
+    }
     setPendingConfirm({
       isError: false,
       step: 1,
       viewTab: 'numbers',
       targetCategories: [activeCategory],
+      duplicateMatch,
       results: sortedResults,
       normalResults: sortedNormal,
       specialPreviews,
@@ -3552,6 +3591,45 @@ export default function App() {
                     </button>
 
                     <button
+                      onClick={() => setToolsView('profit_loss')}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        background: t.inputBg,
+                        border: '1.5px solid #10b981',
+                        borderRadius: '12px',
+                        padding: '12px 14px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '18px' }}>📊</span>
+                        <div>
+                          <div style={{ fontSize: '13px', fontWeight: 800, color: '#34d399' }}>
+                            Profit / Loss & Rate Setting
+                          </div>
+                          <div style={{ fontSize: '11px', color: t.textSecondary }}>
+                            Result डालें • ₹{jodiRatePer10}/10 रेट ({jodiRatePer10 / 10}x) से हिसाब देखें
+                          </div>
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          background: '#059669',
+                          color: '#ffffff',
+                          fontWeight: 800,
+                          fontSize: '10px',
+                          padding: '3px 8px',
+                          borderRadius: '999px',
+                        }}
+                      >
+                        {jodiRatePer10 / 10}x
+                      </span>
+                    </button>
+
+                    <button
                       onClick={() => setToolsView('share_image')}
                       style={{
                         display: 'flex',
@@ -4771,6 +4849,354 @@ export default function App() {
                     </div>
                   </div>
                 </>
+              ) : toolsView === 'profit_loss' ? (
+                (() => {
+                  const rateVal = Number(jodiRatePer10) || 0;
+                  const rateMult = rateVal / 10;
+                  const gameRows = CATEGORIES.map((cat) => {
+                    const rawRes = String(gameResults?.[cat] ?? '').replace(/\D/g, '').slice(0, 2);
+                    const hasResult = rawRes.length === 2;
+                    const resNum = hasResult ? normalizeJodiNumber(rawRes) : '';
+                    const sale = Number(categoryTotals?.[cat]) || 0;
+                    const betOnRes = hasResult
+                      ? entries.reduce(
+                          (sum, e) =>
+                            e.category === cat && e.number === resNum
+                              ? sum + (Number(e.amount) || 0)
+                              : sum,
+                          0
+                        )
+                      : 0;
+                    const payout = hasResult ? Math.round(betOnRes * rateMult) : 0;
+                    const net = hasResult ? sale - payout : 0;
+                    return { cat, rawRes, hasResult, resNum, sale, betOnRes, payout, net };
+                  });
+                  const declaredRows = gameRows.filter((r) => r.hasResult);
+                  const totalDeclaredSale = declaredRows.reduce((s, r) => s + r.sale, 0);
+                  const totalDeclaredPayout = declaredRows.reduce((s, r) => s + r.payout, 0);
+                  const grandNet = totalDeclaredSale - totalDeclaredPayout;
+
+                  return (
+                    <>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <button
+                            onClick={() => setToolsView('menu')}
+                            title="Tools पर Back जाएं"
+                            style={{
+                              background: t.inputBg,
+                              border: `1px solid ${t.cardBorder}`,
+                              color: t.textPrimary,
+                              borderRadius: '8px',
+                              padding: '5px 7px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <ArrowLeft size={15} />
+                          </button>
+                          <div>
+                            <h2 style={{ fontSize: '15px', fontWeight: 700, color: '#34d399' }}>
+                              📊 Profit / Loss &amp; Rate Setting
+                            </h2>
+                            <p style={{ fontSize: '11px', color: t.textSecondary }}>
+                              जोड़ी रेट सेट करें और हर घड़ी का रिजल्ट डालकर नफा-नुकसान देखें
+                            </p>
+                          </div>
+                        </div>
+                        {declaredRows.length > 0 && (
+                          <button
+                            onClick={() => setGameResults({})}
+                            style={{
+                              background: 'rgba(244, 63, 94, 0.14)',
+                              border: '1px solid rgba(244, 63, 94, 0.35)',
+                              color: '#fb7185',
+                              borderRadius: '8px',
+                              padding: '5px 9px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Clear Results
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Jodi Rate Setting */}
+                      <div
+                        style={{
+                          background: t.inputBg,
+                          border: `1px solid ${t.cardBorder}`,
+                          borderRadius: '12px',
+                          padding: '10px 12px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: '8px',
+                          }}
+                        >
+                          <span style={{ fontSize: '12px', fontWeight: 700, color: t.textPrimary }}>
+                            ⚙️ जोड़ी रेट (₹10 पर)
+                          </span>
+                          <span style={{ fontSize: '11px', fontWeight: 700, color: '#38bdf8' }}>
+                            ₹10 = ₹{rateVal} ({rateMult}x)
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          {[900, 950, 1000].map((preset) => {
+                            const active = rateVal === preset;
+                            return (
+                              <button
+                                key={preset}
+                                onClick={() => setJodiRatePer10(preset)}
+                                style={{
+                                  flex: '1 1 70px',
+                                  background: active ? 'rgba(16, 185, 129, 0.2)' : 'rgba(15, 23, 42, 0.45)',
+                                  border: active
+                                    ? '1px solid #10b981'
+                                    : `1px solid ${t.cardBorder}`,
+                                  color: active ? '#34d399' : t.textPrimary,
+                                  borderRadius: '8px',
+                                  padding: '6px 8px',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                ₹{preset} ({preset / 10}x)
+                              </button>
+                            );
+                          })}
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            min="0"
+                            value={jodiRatePer10 === 0 ? '' : jodiRatePer10}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              setJodiRatePer10(Number.isFinite(v) && v >= 0 ? v : 0);
+                            }}
+                            placeholder="Custom"
+                            style={{
+                              width: '78px',
+                              background: 'rgba(15, 23, 42, 0.6)',
+                              border: `1px solid ${t.cardBorder}`,
+                              color: t.textPrimary,
+                              borderRadius: '8px',
+                              padding: '6px 8px',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              textAlign: 'center',
+                              outline: 'none',
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Grand Total Summary */}
+                      <div
+                        style={{
+                          background:
+                            declaredRows.length === 0
+                              ? t.inputBg
+                              : grandNet >= 0
+                                ? 'rgba(16, 185, 129, 0.14)'
+                                : 'rgba(244, 63, 94, 0.14)',
+                          border:
+                            declaredRows.length === 0
+                              ? `1px solid ${t.cardBorder}`
+                              : grandNet >= 0
+                                ? '1px solid rgba(16, 185, 129, 0.45)'
+                                : '1px solid rgba(244, 63, 94, 0.45)',
+                          borderRadius: '12px',
+                          padding: '10px 12px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: '10px',
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: '11px', color: t.textSecondary, fontWeight: 600 }}>
+                            कुल हिसाब ({declaredRows.length}/{CATEGORIES.length} घड़ी रिजल्ट)
+                          </div>
+                          <div style={{ fontSize: '11px', color: t.textSecondary, marginTop: '2px' }}>
+                            Sale: ₹{totalDeclaredSale.toLocaleString('en-IN')} • Payout: ₹
+                            {totalDeclaredPayout.toLocaleString('en-IN')}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div
+                            style={{
+                              fontSize: '16px',
+                              fontWeight: 800,
+                              color:
+                                declaredRows.length === 0
+                                  ? t.textSecondary
+                                  : grandNet >= 0
+                                    ? '#34d399'
+                                    : '#fb7185',
+                            }}
+                          >
+                            {declaredRows.length === 0
+                              ? '—'
+                              : `${grandNet >= 0 ? '+' : '-'}₹${Math.abs(grandNet).toLocaleString('en-IN')}`}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              color:
+                                declaredRows.length === 0
+                                  ? t.textSecondary
+                                  : grandNet >= 0
+                                    ? '#34d399'
+                                    : '#fb7185',
+                            }}
+                          >
+                            {declaredRows.length === 0
+                              ? 'रिजल्ट डालें'
+                              : grandNet >= 0
+                                ? 'PROFIT (फायदा)'
+                                : 'LOSS (नुकसान)'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Game-wise Result & P/L */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+                        {gameRows.map((row) => {
+                          const isProfit = row.net >= 0;
+                          return (
+                            <div
+                              key={row.cat}
+                              style={{
+                                background: t.inputBg,
+                                border: row.hasResult
+                                  ? isProfit
+                                    ? '1px solid rgba(16, 185, 129, 0.4)'
+                                    : '1px solid rgba(244, 63, 94, 0.4)'
+                                  : `1px solid ${t.cardBorder}`,
+                                borderRadius: '11px',
+                                padding: '9px 11px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '6px',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span
+                                    style={{
+                                      background: 'rgba(56, 189, 248, 0.16)',
+                                      color: '#38bdf8',
+                                      border: '1px solid rgba(56, 189, 248, 0.35)',
+                                      borderRadius: '7px',
+                                      padding: '3px 8px',
+                                      fontSize: '12px',
+                                      fontWeight: 800,
+                                      minWidth: '34px',
+                                      textAlign: 'center',
+                                    }}
+                                  >
+                                    {row.cat}
+                                  </span>
+                                  <div>
+                                    <div style={{ fontSize: '12px', fontWeight: 700, color: t.textPrimary }}>
+                                      Sale: ₹{row.sale.toLocaleString('en-IN')}
+                                    </div>
+                                    {row.hasResult && (
+                                      <div style={{ fontSize: '10px', color: t.textSecondary }}>
+                                        {row.resNum} लगी: ₹{row.betOnRes.toLocaleString('en-IN')} × {rateMult} = ₹
+                                        {row.payout.toLocaleString('en-IN')}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  {row.hasResult && (
+                                    <div style={{ textAlign: 'right' }}>
+                                      <div
+                                        style={{
+                                          fontSize: '13px',
+                                          fontWeight: 800,
+                                          color: isProfit ? '#34d399' : '#fb7185',
+                                        }}
+                                      >
+                                        {isProfit ? '+' : '-'}₹{Math.abs(row.net).toLocaleString('en-IN')}
+                                      </div>
+                                      <div
+                                        style={{
+                                          fontSize: '9px',
+                                          fontWeight: 700,
+                                          color: isProfit ? '#34d399' : '#fb7185',
+                                        }}
+                                      >
+                                        {isProfit ? 'PROFIT' : 'LOSS'}
+                                      </div>
+                                    </div>
+                                  )}
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    maxLength={2}
+                                    value={row.rawRes}
+                                    onChange={(e) => {
+                                      const digits = e.target.value.replace(/\D/g, '').slice(0, 2);
+                                      setGameResults((prev) => ({
+                                        ...(prev || {}),
+                                        [row.cat]: digits,
+                                      }));
+                                    }}
+                                    placeholder="Result"
+                                    style={{
+                                      width: '60px',
+                                      background: 'rgba(15, 23, 42, 0.65)',
+                                      border: row.hasResult
+                                        ? '1px solid #38bdf8'
+                                        : `1px solid ${t.cardBorder}`,
+                                      color: t.textPrimary,
+                                      borderRadius: '8px',
+                                      padding: '6px 4px',
+                                      fontSize: '13px',
+                                      fontWeight: 800,
+                                      textAlign: 'center',
+                                      outline: 'none',
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()
               ) : toolsView === 'failed_patterns' ? (
                 <>
                   <div
@@ -5740,6 +6166,25 @@ export default function App() {
                     <X size={20} />
                   </button>
                 </div>
+
+                {/* Duplicate WhatsApp Message Alert */}
+                {pendingConfirm.duplicateMatch && (
+                  <div
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      color: '#fde047',
+                      background: 'rgba(234, 179, 8, 0.16)',
+                      border: '1.5px solid #eab308',
+                      borderRadius: '10px',
+                      padding: '8px 10px',
+                    }}
+                  >
+                    ⚠️ यह मैसेज पहले से जुड़ा हुआ है! ({pendingConfirm.duplicateMatch.category} •{' '}
+                    {pendingConfirm.duplicateMatch.time} • {pendingConfirm.duplicateMatch.count}J • ₹
+                    {pendingConfirm.duplicateMatch.total.toLocaleString('en-IN')}) — क्या आप फिर भी दोबारा जोड़ना चाहते हैं?
+                  </div>
+                )}
 
                 {/* Big Total Match & Game Total Card */}
                 <div
