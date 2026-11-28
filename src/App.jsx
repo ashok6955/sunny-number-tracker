@@ -90,17 +90,20 @@ function getPalatNumber(num) {
  * - "A2.3(300)" -> digits 2,3 Andar @ 300/10 = ₹30 each
  * - "7.AB.(50)" -> digit 7 Andar & Bahar @ 50/10 = ₹5 each
  */
-function tryParseHarufLine(line) {
+function tryParseHarufLine(line, defaultSide = 'B', forceHaruf = false) {
   if (!/\d/.test(line)) return null;
   const hasHarufWord =
     /(?:\b|(?<=\d))(?:haruf|harf|harup|haroop|harap|hrf|bahar|bahr|andar|ander)\b/i.test(line) ||
     /(?:हरूफ|हरफ|बाहर|अंदर|अन्दर)/.test(line);
   const hasABToken =
     /(?:^|[\s.,(/]|\d)(?:AB|BA|A\s*\/\s*B|B\s*\/\s*A)(?:$|[\s.,)/=(])/i.test(line);
-  const hasAttachedSide = /(?:^|[\s.,])(?:[AB][\s.,]*\d|\d[\s.,]*[AB])(?:$|[\s.,(/])/i.test(line);
+  const hasAttachedSide =
+    /(?:^|[\s.,])(?:[AB][\s.,]*\d|\d[\s.,]*[AB])(?:$|[\s.,(/\d])/i.test(line) ||
+    /(\d)\1{2,}\s*[AB]\s*\d+/i.test(line);
   // 3+ repeated identical digits (e.g. "222=100", "1111 into 400") without A/B defaults to Bahar Haruf
-  const hasRepeatedHarufDigits = /\b(\d)\1{2,}\b/.test(line);
-  if (!hasHarufWord && !hasABToken && !hasAttachedSide && !hasRepeatedHarufDigits) return null;
+  const hasRepeatedHarufDigits = /\b(\d)\1{2,}/.test(line);
+  const isSingleDigitHaruf = forceHaruf && /^\s*\d\s*[*×x=/\-\s.]+\d+(?:\.\d+)?\s*$/i.test(line);
+  if (!hasHarufWord && !hasABToken && !hasAttachedSide && !hasRepeatedHarufDigits && !isSingleDigitHaruf) return null;
 
   const hasAB =
     /(?:^|[\s.,(/]|\d)(?:ab|ba|a\s*\/\s*b|b\s*\/\s*a)(?:$|[\s.,)/=(])/i.test(line) ||
@@ -111,16 +114,25 @@ function tryParseHarufLine(line) {
     hasAB ||
     /\b(?:andar|ander)\b/i.test(line) ||
     /(?:अंदर|अन्दर)/.test(line) ||
-    /(?:^|[\s.,])a[\s.,]*\d|\d[\s.,]*a(?:$|[\s.,(/])/i.test(line);
+    /(?:^|[\s.,])a[\s.,]*\d|\d[\s.,]*a(?:$|[\s.,(/\d])/i.test(line);
   let hasB =
     hasAB ||
     /\b(?:bahar|bahr)\b/i.test(line) ||
     /बाहर/.test(line) ||
-    /(?:^|[\s.,])b[\s.,]*\d|\d[\s.,]*b(?:$|[\s.,(/])/i.test(line);
-  // If neither Andar nor Bahar is specified, default is always Bahar (outer)
-  if (!hasA && !hasB) {
-    hasA = false;
-    hasB = true;
+    /(?:^|[\s.,])b[\s.,]*\d|\d[\s.,]*b(?:$|[\s.,(/\d])/i.test(line);
+  const hadExplicitSide = hasA || hasB;
+  // If neither Andar nor Bahar is specified, use defaultSide ('B' by default, or 'A'/'AB' from context)
+  if (!hadExplicitSide) {
+    if (defaultSide === 'AB') {
+      hasA = true;
+      hasB = true;
+    } else if (defaultSide === 'A') {
+      hasA = true;
+      hasB = false;
+    } else {
+      hasA = false;
+      hasB = true;
+    }
   }
 
   // Extract total haruf amount and divide by 10 (e.g. 400 -> ₹40 per jodi, 100 -> ₹10)
@@ -283,6 +295,8 @@ function analyzeWhatsAppText(raw) {
   let pendingLineRefs = [];
   let lastBatchNums = [];
   let lastBatchAmt = 0;
+  let pendingHarufSide = null; // 'A' | 'B' | 'AB' | null
+  let recentDefaultHarufs = []; // [{ digit, perJodi }] for trailing "A/B" line expansion
 
   const pushEntries = (nums, straightAmt, palatAmt) => {
     lastBatchNums = [...nums];
@@ -485,13 +499,46 @@ function analyzeWhatsAppText(raw) {
       continue;
     }
 
+    // Handle standalone Haruf side lines ("A/B", "AB", "A", "B", "Andar Bahar") before or after Haruf lines
+    if (!/\d/.test(line)) {
+      const sideOnlyMatch = line.match(/^(?:ab|ba|a\s*\/\s*b|b\s*\/\s*a|andar\s*bahar|अंदर\s*बाहर|a|b|andar|ander|bahar|bahr|अंदर|बाहर)$/i);
+      if (sideOnlyMatch) {
+        const sLow = line.toLowerCase();
+        const isABSide = /ab|ba|\/|andar.*bahar|अंदर.*बाहर/.test(sLow);
+        const isASide = !isABSide && /^(?:a|andar|ander|अंदर)$/i.test(sLow);
+        const resolvedSide = isABSide ? 'AB' : isASide ? 'A' : 'B';
+        if (recentDefaultHarufs.length > 0 && (resolvedSide === 'AB' || resolvedSide === 'A')) {
+          // Previously parsed Haruf lines defaulted to Bahar ('B'); if trailing line says A/B, add the missing Andar ('A') side
+          for (const hMeta of recentDefaultHarufs) {
+            const extra = [];
+            for (let k = 0; k <= 9; k++) {
+              extra.push({ number: hMeta.digit === 0 && k === 0 ? 100 : hMeta.digit * 10 + k, amount: hMeta.perJodi });
+            }
+            results.push(...extra);
+            specialPreviews.push({
+              kind: 'haruf',
+              raw: `${hMeta.digit} (Andar from A/B)`,
+              count: extra.length,
+              perAmt: hMeta.perJodi,
+              total: extra.reduce((s, x) => s + x.amount, 0),
+              items: [...extra].sort((a, b) => a.number - b.number),
+            });
+          }
+          recentDefaultHarufs = [];
+          continue;
+        }
+        pendingHarufSide = resolvedSide;
+        continue;
+      }
+    }
+
     // Check for Haruf line (A=Andar, B=Bahar, AB=Both, amount/10 per jodi)
     // Also split multi-side Haruf on the same line (e.g. "A /111/100    B. /111/100")
     const multiHarufParts = line.split(/(?=(?:^|\s)[AB]\s*[./]\s*\d+)/i).map((s) => s.trim()).filter(Boolean);
     const harufPartsToTry = multiHarufParts.length > 1 ? multiHarufParts : [line];
     let handledAsHaruf = false;
     for (const hPart of harufPartsToTry) {
-      const harufEntries = tryParseHarufLine(hPart);
+      const harufEntries = tryParseHarufLine(hPart, pendingHarufSide || 'B', Boolean(pendingHarufSide));
       if (harufEntries !== null) {
         handledAsHaruf = true;
         pendingNumbers = [];
@@ -507,12 +554,31 @@ function analyzeWhatsAppText(raw) {
             total: hTotal,
             items: [...harufEntries].sort((a, b) => a.number - b.number),
           });
+          // If this line had no explicit A/B and no pendingHarufSide, remember it in case a trailing "A/B" follows
+          const hadOwnSide =
+            /(?:^|[\s.,(/]|\d)(?:ab|ba|a\s*\/\s*b|b\s*\/\s*a)(?:$|[\s.,)/=(])/i.test(hPart) ||
+            /\b(?:andar|ander|bahar|bahr)\b/i.test(hPart) ||
+            /(?:अंदर|बाहर)/.test(hPart) ||
+            /(?:^|[\s.,])(?:[AB][\s.,]*\d|\d[\s.,]*[AB])(?:$|[\s.,(/\d])/i.test(hPart);
+          if (!hadOwnSide && !pendingHarufSide) {
+            const dSet = new Set(
+              harufEntries.map((x) => {
+                const s = String(x.number === 100 ? '00' : x.number).padStart(2, '0');
+                return parseInt(s[1], 10);
+              })
+            );
+            for (const d of dSet) {
+              recentDefaultHarufs.push({ digit: d, perJodi: harufEntries[0].amount });
+            }
+          }
         } else {
           failed.push({ rawLine: originalLine, reason: 'हरूफ में अंक या अमाउंट नहीं मिला' });
         }
       }
     }
     if (handledAsHaruf) continue;
+    recentDefaultHarufs = [];
+    pendingHarufSide = null;
 
     // Detect Palat modifiers on this line before cleaning
     let separatePalatAmt = null;
