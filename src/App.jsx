@@ -415,8 +415,8 @@ function analyzeWhatsAppText(raw) {
       continue;
     }
 
-    // Extract inline Haruf tokens when mixed on the same line with normal bracket groups (e.g. "33(400)A3(150)")
-    const inlineHarufRe = /(?:^|[\s.,)])((?:AB|BA|[AB])[\s.]*\d+(?:[\s.]*\d+)*\s*\(\s*\d+(?:\.\d+)?\s*\))/gi;
+    // Extract inline Haruf tokens when mixed on the same line with normal bracket groups (e.g. "33(400)A3(150)" or "37(350)A3.2(250)A4(150)")
+    const inlineHarufRe = /(?<=^|[\s.,)])((?:AB|BA|[AB])[\s.]*\d+(?:[\s.]*\d+)*\s*\(\s*\d+(?:\.\d+)?\s*\))/gi;
     if (/\(\s*\d+(?:\.\d+)?\s*\)/.test(line) && inlineHarufRe.test(line)) {
       inlineHarufRe.lastIndex = 0;
       let strippedLine = line;
