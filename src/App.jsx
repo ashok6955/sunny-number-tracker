@@ -231,7 +231,9 @@ function tryParseCrossingLine(line) {
   let amt = 0;
   let digitPart = normLine;
 
-  const parenAmt = normLine.match(/\(\s*@?\s*(\d+(?:\.\d+)?)\s*(?:into|intu|ento|in|rs)?\s*\)/i);
+  const parenAmt = normLine.match(
+    /\(\s*@?\s*(\d+(?:\.\d+)?)\s*(?:into|intu|ento|in|rs|jc|j\.c|joda\s*cut|jode\s*cat|jodi\s*cut|crossing|cwj|cwz)?\s*\)/i
+  );
   const eqOrIntoAmt = normLine.match(
     /(?:=|into|intu|ento|in|rs|r|@|×|x)\s*[.=*:\s]*(\d+(?:\.\d+)?)/i
   );
@@ -371,7 +373,7 @@ function analyzeWhatsAppText(raw) {
         (/[₹*()+=]/.test(line) ||
           (line.replace(/\D/g, '').length >= 3 && line.trim() !== '100'))) ||
       (!hasInlineBetSyntax && (/\b\d{3,}\s*[-+]\s*\d+\s*=|\d+\s*\+\s*\d+\s*=/.test(line) || /\b\d+\s*\+\+/.test(line))) ||
-      /^\s*[+]{2,}\d+/.test(line)
+      /^\s*[+]+\d+/.test(line)
     ) {
       pendingNumbers = [];
       pendingRawLines = [];
@@ -1574,45 +1576,62 @@ export default function App() {
     showToast(`🔒 ${cat} Selected & Locked`);
   };
 
-  // Shared helper to commit parsed entries into activeCategory
-  const commitParsedEntries = (parsed, sourceLabel = '', rawText = '') => {
+  // Shared helper to commit parsed entries into one or more target categories
+  const commitParsedEntries = (parsed, sourceLabel = '', rawText = '', targetCats = null) => {
     if (parsed.length === 0) return false;
+    const catsToCommit =
+      Array.isArray(targetCats) && targetCats.length > 0 ? targetCats : [activeCategory];
     const now = Date.now();
-    const batchId = `b-${now}-${Math.random().toString(36).slice(2, 6)}`;
-    if (rawText && rawText.trim()) {
-      const cleanSrc = rawText.trim();
-      setBatchSources((prev) => {
-        const keys = Object.keys(prev);
-        const next = keys.length > 400 ? Object.fromEntries(keys.slice(-300).map((k) => [k, prev[k]])) : { ...prev };
-        next[batchId] = cleanSrc;
-        return next;
-      });
-    }
     const timeStr = new Date(now).toLocaleTimeString('en-IN', {
       hour: '2-digit',
       minute: '2-digit',
     });
-    const newItems = parsed.map((item, idx) => ({
-      id: `${now}-${idx}-${Math.random().toString(36).slice(2, 7)}`,
-      batchId,
-      category: activeCategory,
-      number: item.number,
-      amount: item.amount,
-      time: timeStr,
-      createdAt: now + idx,
-    }));
+    const cleanSrc = rawText && rawText.trim() ? rawText.trim() : '';
+    const allNewItems = [];
+    const newSources = {};
 
-    const addedTotal = newItems.reduce((sum, item) => sum + item.amount, 0);
-    setEntries((prev) => [...prev, ...newItems]);
+    catsToCommit.forEach((cat, cIdx) => {
+      const batchId = `b-${now}-${cIdx}-${Math.random().toString(36).slice(2, 6)}`;
+      if (cleanSrc) newSources[batchId] = cleanSrc;
+      parsed.forEach((item, idx) => {
+        allNewItems.push({
+          id: `${now}-${cIdx}-${idx}-${Math.random().toString(36).slice(2, 7)}`,
+          batchId,
+          category: cat,
+          number: item.number,
+          amount: item.amount,
+          time: timeStr,
+          createdAt: now + cIdx * 1000 + idx,
+        });
+      });
+    });
+
+    if (Object.keys(newSources).length > 0) {
+      setBatchSources((prev) => {
+        const keys = Object.keys(prev);
+        const base =
+          keys.length > 400
+            ? Object.fromEntries(keys.slice(-300).map((k) => [k, prev[k]]))
+            : { ...prev };
+        return { ...base, ...newSources };
+      });
+    }
+
+    const singleCatTotal = parsed.reduce((sum, item) => sum + item.amount, 0);
+    setEntries((prev) => [...prev, ...allNewItems]);
     setInputText('');
 
-    if (newItems.length === 1) {
+    if (catsToCommit.length > 1) {
       showToast(
-        `${sourceLabel}${activeCategory}: Number ${String(newItems[0].number).padStart(2, '0')} added ₹${newItems[0].amount}`
+        `${sourceLabel}${catsToCommit.join('+')}: ${parsed.length} Jodis each (₹${(singleCatTotal * catsToCommit.length).toLocaleString('en-IN')})`
+      );
+    } else if (parsed.length === 1) {
+      showToast(
+        `${sourceLabel}${catsToCommit[0]}: Number ${String(parsed[0].number).padStart(2, '0')} added ₹${parsed[0].amount}`
       );
     } else {
       showToast(
-        `${sourceLabel}${activeCategory}: ${newItems.length} Jodis added (₹${addedTotal})`
+        `${sourceLabel}${catsToCommit[0]}: ${parsed.length} Jodis added (₹${singleCatTotal})`
       );
     }
     return true;
@@ -1767,6 +1786,7 @@ export default function App() {
       isError: false,
       step: 1,
       viewTab: 'numbers',
+      targetCategories: [activeCategory],
       results: sortedResults,
       normalResults: sortedNormal,
       specialPreviews,
@@ -1850,8 +1870,8 @@ export default function App() {
       setPendingConfirm((prev) => (prev ? { ...prev, step: 2 } : null));
       return;
     }
-    const { results, failed, sourceLabel, fromBridge, rawText } = pendingConfirm;
-    commitParsedEntries(results, sourceLabel, rawText);
+    const { results, failed, sourceLabel, fromBridge, rawText, targetCategories } = pendingConfirm;
+    commitParsedEntries(results, sourceLabel, rawText, targetCategories);
     if (failed.length > 0) {
       const savedCount = recordFailedPatterns(failed, '');
       if (savedCount > 0) {
@@ -6332,6 +6352,75 @@ export default function App() {
                   </>
                 )}
 
+                {/* Multi-Game Target Selector (send same parchi to GB + GL + DS in 1 tap) */}
+                {(() => {
+                  const targets =
+                    Array.isArray(pendingConfirm.targetCategories) &&
+                    pendingConfirm.targetCategories.length > 0
+                      ? pendingConfirm.targetCategories
+                      : [activeCategory];
+                  return (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '6px',
+                        flexWrap: 'wrap',
+                        background: t.inputBg,
+                        border: `1px solid ${t.cardBorder}`,
+                        borderRadius: '10px',
+                        padding: '6px 8px',
+                      }}
+                    >
+                      <span style={{ fontSize: '10px', fontWeight: 800, color: t.textSecondary }}>
+                        Send to:
+                      </span>
+                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                        {CATEGORIES.map((cat) => {
+                          const isSel = targets.includes(cat);
+                          return (
+                            <button
+                              key={`confirm-cat-${cat}`}
+                              type="button"
+                              onClick={() => {
+                                setPendingConfirm((prev) => {
+                                  if (!prev) return null;
+                                  const cur =
+                                    Array.isArray(prev.targetCategories) &&
+                                    prev.targetCategories.length > 0
+                                      ? prev.targetCategories
+                                      : [activeCategory];
+                                  let next;
+                                  if (cur.includes(cat)) {
+                                    next = cur.length > 1 ? cur.filter((c) => c !== cat) : cur;
+                                  } else {
+                                    next = [...cur, cat];
+                                  }
+                                  return { ...prev, targetCategories: next };
+                                });
+                              }}
+                              style={{
+                                padding: '3px 8px',
+                                borderRadius: '999px',
+                                fontSize: '10px',
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                                background: isSel ? t.accent : t.cardBg,
+                                color: isSel ? '#ffffff' : t.textSecondary,
+                                border: `1px solid ${isSel ? t.accent : t.cardBorder}`,
+                              }}
+                            >
+                              {cat}
+                              {isSel ? ' ✓' : ''}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
                   <button
                     type="button"
@@ -6388,7 +6477,17 @@ export default function App() {
                       cursor: 'pointer',
                     }}
                   >
-                    Confirm (₹{msgTotal.toLocaleString('en-IN')})
+                    {(() => {
+                      const targets =
+                        Array.isArray(pendingConfirm.targetCategories) &&
+                        pendingConfirm.targetCategories.length > 0
+                          ? pendingConfirm.targetCategories
+                          : [activeCategory];
+                      const grandTot = msgTotal * targets.length;
+                      return targets.length > 1
+                        ? `Confirm ${targets.join('+')} (₹${grandTot.toLocaleString('en-IN')})`
+                        : `Confirm (₹${msgTotal.toLocaleString('en-IN')})`;
+                    })()}
                   </button>
                 </div>
               </div>
